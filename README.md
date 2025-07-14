@@ -5,7 +5,7 @@
 
   
 [![License](https://img.shields.io/badge/REG-Tweak-blue.svg)](LICENSE)
-![Windows](https://img.shields.io/badge/Windows-7%2F8%2F10%2F11-blue.svg)
+![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)
 
 </div>
 
