@@ -1,0 +1,10 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings]
+"AllowMUUpdateService"=dword:00000000
+"FlightSettingsMaxPauseDays"=dword:00040a60
+"PauseUpdatesExpiryTime"="2750-07-14T00:47:49Z"
+"PauseFeatureUpdatesEndTime"="2750-07-14T00:47:49Z"
+"PauseQualityUpdatesEndTime"="2750-07-14T00:47:49Z"
+"PauseFeatureUpdatesStartTime"="2025-07-14T00:47:49Z"
+"PauseQualityUpdatesStartTime"="2025-07-14T00:47:49Z"
