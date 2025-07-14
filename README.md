@@ -2,7 +2,13 @@
 
 # Windows Update Pause Registry Tweaks
 
+### 👀 Repository Views
 
+<img alt="count" src="https://count.getloli.com/get/@:EXLOUD-WUP?theme=rule34" />
+
+**⭐ If this tool helped you, please consider giving it a star! ⭐**
+
+---
   
 [![License](https://img.shields.io/badge/REG-Tweak-blue.svg)](LICENSE)
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)
