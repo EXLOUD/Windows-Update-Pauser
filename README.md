@@ -10,7 +10,7 @@
 
 ---
   
-[![License](https://img.shields.io/badge/Tweak-REG5-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/Tweak-REG-blue.svg)](LICENSE)
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)
 
 </div>
