@@ -1,4 +1,13 @@
+<div align="center">
+
 # Windows Update Pause Registry Tweaks
+
+
+  
+[![License](https://img.shields.io/badge/REG-Tweak-blue.svg)](LICENSE)
+![Windows](https://img.shields.io/badge/Windows-7%2F8%2F10%2F11-blue.svg)
+
+</div>
 
 <details>
 <summary>Українська (UA)</summary>
