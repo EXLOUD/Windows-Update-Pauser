@@ -10,6 +10,8 @@
 
 ---
 
+<img src="assets/preview.png" alt="Office Privacy and Telemetry Disabler Logo">
+
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)
 
