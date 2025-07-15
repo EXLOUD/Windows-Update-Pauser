@@ -1,16 +1,15 @@
 <div align="center">
+  
+# Windows Update Pauser
 
-# Windows Update Pause Registry Tweaks
+### 👀 Repository Views  
+<img alt="count" src="https://count.getloli.com/get/@:EXLOUD-WUP?theme=rule34" />  
 
-### 👀 Repository Views
-
-<img alt="count" src="https://count.getloli.com/get/@:EXLOUD-WUP?theme=rule34" />
-
-**⭐ If this tool helped you, please consider giving it a star! ⭐**
+**⭐ If this tool helped you, please consider giving it a star! ⭐**  
 
 ---
-  
-[![License](https://img.shields.io/badge/Tweak-REG-blue.svg)](LICENSE)
+
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)
 
 </div>
@@ -18,55 +17,59 @@
 <details>
 <summary>Українська (UA)</summary>
 
-Цей файл реєстру містить налаштування Windows, які дозволяють призупинити оновлення системи (функціональні та якісні) на дуже довгий термін — до 2750 року. Це дає змогу повністю контролювати процес оновлень або тимчасово їх відключити.
+Ця програма дозволяє **призупиняти або поновлювати оновлення Windows** (як функціональні, так і якісні) за допомогою сучасного графічного інтерфейсу.
 
-### Що робить цей файл реєстру?
+### Що робить ця утиліта?
+- Призупиняє оновлення до 4750 року (через зміну реєстру Windows)
+- Надає змогу знову дозволити оновлення у будь-який момент
+- Має темний стиль, чистий та адаптивний інтерфейс
+- Автоматично відкриває `ms-settings:windowsupdate` після дії
 
-- Вимикає службу Microsoft Update для запобігання автоматичним оновленням.
-- Встановлює максимально можливий термін паузи для оновлень — понад 263 тисячі днів.
-- Встановлює дату початку паузи — 14 липня 2025 року.
-- Встановлює дату закінчення паузи — 14 липня 2750 року (фактично нескінченність).
-- Охоплює функціональні та якісні оновлення.
-
-### Як використовувати?
-
-1. Збережіть файл з розширенням `.reg`.
-2. Зробіть резервну копію реєстру або створіть точку відновлення системи.
-3. Запустіть файл подвійним кліком і підтвердіть зміни.
-4. Перезавантажте комп’ютер для застосування налаштувань.
+### Як користуватись?
+1. Запустіть `.exe` з правами адміністратора
+2. Натисніть кнопку "Pause" або "Resume"
+3. Оновлення буде призупинено або дозволено
+4. Вікно оновлень відкриється автоматично
 
 ### Увага!
-
-- Використання цього файлу **блокує оновлення системи** на дуже довгий час, що може призвести до вразливостей безпеки.
-- Рекомендується застосовувати лише якщо ви усвідомлюєте наслідки.
-- Налаштування можна скасувати вручну або через відновлення системи.
+- Працює лише на **Windows 10 та 11**
+- Зміни застосовуються через **реєстр**, тому для ефекту потрібні права адміністратора
+- Після перезавантаження або вручну можна відновити оновлення
 
 </details>
 
-
 ## English (EN)
 
-This registry file contains Windows settings that allow you to pause system updates (both feature and quality updates) for a very long time — until the year 2750. This gives you full control over the update process or temporarily disables updates.
+This GUI tool allows you to **pause or resume Windows Updates** (both feature and quality updates) using a modern, dark-themed interface.
 
-### What does this registry file do?
-
-- Disables the Microsoft Update service to prevent automatic updates.
-- Sets the maximum possible pause duration for updates — over 263 thousand days.
-- Sets the pause start date to July 14, 2025.
-- Sets the pause end date to July 14, 2750 (effectively indefinite).
-- Covers both feature and quality updates.
+### What does this app do?
+- Pauses updates until the year 4750 via registry tweaks
+- Lets you resume updates anytime with one click
+- Clean, dark-mode interface using modern Win32 drawing
+- Automatically opens `ms-settings:windowsupdate` after changes
 
 ### How to use?
-
-1. Save the file with `.reg` extension.
-2. Backup your registry or create a system restore point.
-3. Run the file by double-clicking and confirm the changes.
-4. Restart your computer to apply the settings.
+1. Run the `.exe` as Administrator
+2. Click "Pause" or "Resume"
+3. Updates will be paused or resumed
+4. Windows Update settings will open automatically
 
 ### Warning!
-
-- Using this file **blocks system updates** for a very long time, which may cause security vulnerabilities.
-- Recommended only if you fully understand the consequences.
-- Settings can be reverted manually or via system restore.
+- Works only on **Windows 10 or 11**
+- Requires administrator privileges
+- Settings affect the Windows registry (use at your own risk)
 
 ---
+
+## Build Instructions
+
+To build from source:
+
+1. Open `UnifiedWindowsUpdateControl.cpp` in Visual Studio
+2. Link the following libraries: `comctl32`, `dwmapi`, `uxtheme`, `winmm`, `version`
+3. Compile as a Windows Desktop Application
+4. Run with Administrator rights
+
+## License
+
+MIT License — see `LICENSE` for details.
