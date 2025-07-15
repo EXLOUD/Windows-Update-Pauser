@@ -1,3 +1,4 @@
+
 <div align="center">
   
 # Windows Update Pauser
@@ -20,21 +21,25 @@
 Ця програма дозволяє **призупиняти або поновлювати оновлення Windows** (як функціональні, так і якісні) за допомогою сучасного графічного інтерфейсу.
 
 ### Що робить ця утиліта?
-- Призупиняє оновлення до 4750 року (через зміну реєстру Windows)
-- Надає змогу знову дозволити оновлення у будь-який момент
-- Має темний стиль, чистий та адаптивний інтерфейс
-- Автоматично відкриває `ms-settings:windowsupdate` після дії
+- Призупиняє оновлення до **12 грудня 4750 року**
+- Дозволяє поновити оновлення будь-коли
+- Темна тема, плавна анімація, візуальні та звукові ефекти
+- Відкриває параметри оновлення Windows після дії
+- Підтримує Windows 10 та 11
 
 ### Як користуватись?
 1. Запустіть `.exe` з правами адміністратора
-2. Натисніть кнопку "Pause" або "Resume"
-3. Оновлення буде призупинено або дозволено
-4. Вікно оновлень відкриється автоматично
+2. Натисніть кнопку **⏸️ Pause Until 4750** або **▶️ Resume Updates**
+3. Програма:
+   - Змінить записи в реєстрі
+   - Відобразить статус виконання
+   - Програє звуковий сигнал
+   - Відкриє `ms-settings:windowsupdate`
 
 ### Увага!
-- Працює лише на **Windows 10 та 11**
-- Зміни застосовуються через **реєстр**, тому для ефекту потрібні права адміністратора
-- Після перезавантаження або вручну можна відновити оновлення
+- Необхідні **права адміністратора**
+- Використовуйте на власний ризик (резервна копія рекомендується)
+- Може не працювати в корпоративних мережах
 
 </details>
 
@@ -42,34 +47,144 @@
 
 This GUI tool allows you to **pause or resume Windows Updates** (both feature and quality updates) using a modern, dark-themed interface.
 
-### What does this app do?
-- Pauses updates until the year 4750 via registry tweaks
-- Lets you resume updates anytime with one click
-- Clean, dark-mode interface using modern Win32 drawing
-- Automatically opens `ms-settings:windowsupdate` after changes
+---
 
-### How to use?
-1. Run the `.exe` as Administrator
-2. Click "Pause" or "Resume"
-3. Updates will be paused or resumed
-4. Windows Update settings will open automatically
+### 🔧 Features
 
-### Warning!
-- Works only on **Windows 10 or 11**
-- Requires administrator privileges
-- Settings affect the Windows registry (use at your own risk)
+- **Long-term Pause**: Pauses Windows Updates until **December 12, 4750**
+- **Modern UI**: Dark-themed interface with animations and hover effects
+- **One-Click Toggle**: Easily switch between pause and resume
+- **Live Feedback**: Real-time success/failure status with color-coded messages
+- **System Integration**: Opens Windows Update settings after each action
+- **Sound Feedback**: Audio confirmation after successful operations
+- **Full Compatibility**: Works with both Windows 10 and 11
 
 ---
 
-## Build Instructions
+### 🖥️ Screenshots
 
-To build from source:
+> UI features a modern dark design:
+- Card-based layout with animations
+- Color-coded status (✅ green = success, ❌ red = error)
+- Large pause/resume toggle buttons
 
-1. Open `UnifiedWindowsUpdateControl.cpp` in Visual Studio
-2. Link the following libraries: `comctl32`, `dwmapi`, `uxtheme`, `winmm`, `version`
-3. Compile as a Windows Desktop Application
-4. Run with Administrator rights
+_(Add screenshots in `/screenshots` folder if available)_
 
-## License
+---
 
-MIT License — see `LICENSE` for details.
+## 🚀 How It Works
+
+This app changes several Windows registry values to override update behavior.
+
+### 🔑 Registry Keys Used
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings
+├── PauseUpdatesExpiryTime
+├── PauseFeatureUpdatesEndTime
+├── PauseQualityUpdatesEndTime
+├── PauseFeatureUpdatesStartTime
+├── PauseQualityUpdatesStartTime
+├── FlightSettingsMaxPauseDays
+```
+
+### When Pausing:
+- Sets expiration date to **12/12/4750**
+- Applies large pause duration (~2000 years)
+- Sets current time as start time
+
+### When Resuming:
+- Clears all pause-related registry values
+- Restores default update behavior
+
+---
+
+## 💻 System Requirements
+
+| Component        | Requirement                      |
+|------------------|----------------------------------|
+| OS               | Windows 10 or 11                 |
+| Architecture     | x86 / x64                        |
+| Privileges       | Administrator access required    |
+
+---
+
+## ⚠️ Important Notes
+
+- This tool only modifies the **Windows registry**
+- **Does not disable services** or block updates permanently
+- **Use with caution** – your system will not get updates while paused
+- Ideal for temporary control, not indefinite disabling
+
+---
+
+## 🛠️ Build Instructions
+
+### Prerequisites
+
+- Visual Studio 2019 or later
+- Windows SDK
+- Linked libraries:
+  - `comctl32.lib`, `dwmapi.lib`, `uxtheme.lib`, `winmm.lib`, `version.lib`
+
+### Build Steps
+
+1. Clone the repository
+2. Open the solution in Visual Studio
+3. Make sure you have:
+   - `icon.ico` (32x32)
+   - `icon_small.ico` (16x16)
+4. Build in **Release mode**
+
+```
+WindowsUpdatePauser/
+├── UnifiedWindowsUpdateControl.cpp
+├── resource.h
+├── Resource.rc
+├── icon.ico
+├── icon_small.ico
+└── README.md
+```
+
+---
+
+## 🐞 Troubleshooting
+
+### Common Issues
+
+| Error                      | Solution                                                  |
+|----------------------------|-----------------------------------------------------------|
+| Failed to apply pause      | Run as Administrator; check Update service is running     |
+| Unsupported Windows Version| Use on Windows 10 or 11 only                              |
+| Registry Access Denied     | Right-click → Run as Admin; verify UAC settings           |
+
+---
+
+## 🧩 Contributing
+
+Contributions are welcome!
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test on Windows 10/11
+5. Submit a pull request
+
+---
+
+## 📄 License
+
+Licensed under the [MIT License](LICENSE)
+
+---
+
+## ❗ Disclaimer
+
+This software modifies the **Windows registry**. Use it **at your own risk**. The authors are **not responsible** for any system damage, loss of updates, or security issues that may result from prolonged update pausing.
+
+---
+
+**Version**: 1.0.0.0  
+**Author**: EXLOUD  
+**Compatibility**: Windows 10 / 11  
+**Architecture**: x86 & x64  
