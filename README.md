@@ -11,7 +11,7 @@
 ---
 
 <p align="center">
- <img width="220px" src="assets/preview.png" align="center" alt="Windows Update Pauser" />
+ <img width="450px" src="assets/preview.png" align="center" alt="Windows Update Pauser" />
  <h2 align="center">Windows Update Pauser</h2>
  <p align="center">Modern Windows Update Control Tool for Windows 10/11</p>
 </p>
