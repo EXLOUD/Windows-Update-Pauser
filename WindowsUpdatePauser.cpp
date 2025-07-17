@@ -1,53 +1,99 @@
-﻿#include <windows.h>
+// WindowsUpdatePauser.cpp
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <windowsx.h>
+#include "resource.h"
+#include <winternl.h>
 #include <commctrl.h>
-#include <string>
 #include <shellapi.h>
 #include <dwmapi.h>
 #include <uxtheme.h>
-#include <windowsx.h>
 #include <mmsystem.h>
 #include <versionhelpers.h>
-#include "resource.h"
+#include <shellscalingapi.h>
+#include <string>
+#include <memory>
 
+#pragma comment(lib, "Shcore.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "version.lib")
 
-#define IDC_BTN_PAUSE   1001
-#define IDC_LBL_STATUS  1003
-#define IDC_LBL_TITLE   1004
+#pragma comment(linker, \
+    "\"/manifestdependency:type='win32' "\
+    "name='Microsoft.Windows.Common-Controls' "\
+    "version='6.0.0.0' "\
+    "processorArchitecture='*' "\
+    "publicKeyToken='6595b64144ccf1df' "\
+    "language='*'\"")
 
-const wchar_t* CLASS_NAME = L"WindowsUpdatePauser";
+// ==================================================================
+// CONSTANTS AND GLOBALS
+// ==================================================================
 
-HWND hMainWnd, hBtnPause, hLblStatus, hLblTitle;
-HFONT hFontTitle, hFontButton, hFontStatus;
-HBRUSH hBrushBg, hBrushCard, hBrushAccent, hBrushHover, hBrushActive;
-HPEN hPenBorder, hPenAccent;
-HCURSOR hHandCursor = NULL;
-bool isHoveredPause = false;
-bool isPressedPause = false;
-bool isDarkMode = true;
-bool isPaused = false;
-std::wstring lastOperationResult = L"Ready to manage Windows Update pause";
+constexpr wchar_t CLASS_NAME[] = L"WUPauser_Improved";
+constexpr int WINDOW_WIDTH = 465;
+constexpr int WINDOW_HEIGHT = 240;
+constexpr int H_MARGIN = 20;
+constexpr int TIMER_ID = 1;
+constexpr int TIMER_INTERVAL = 50;
 
-HDC hMemDC = NULL;
-HBITMAP hMemBitmap = NULL;
-RECT clientRect;
+// Color scheme
+constexpr COLORREF BG_COLOR = RGB(28, 28, 28);
+constexpr COLORREF CARD_COLOR = RGB(42, 42, 42);
+constexpr COLORREF ACCENT_COLOR = RGB(0, 120, 215);
+constexpr COLORREF HOVER_COLOR = RGB(16, 132, 208);
+constexpr COLORREF ACTIVE_COLOR = RGB(0, 102, 180);
+constexpr COLORREF PAUSE_COLOR = RGB(255, 193, 7);
+constexpr COLORREF RESUME_COLOR = RGB(40, 167, 69);
+constexpr COLORREF TEXT_PRIMARY = RGB(255, 255, 255);
+constexpr COLORREF TEXT_SECONDARY = RGB(180, 180, 180);
+constexpr COLORREF TEXT_SUCCESS = RGB(16, 185, 129);
+constexpr COLORREF TEXT_ERROR = RGB(239, 68, 68);
+constexpr COLORREF BORDER_COLOR = RGB(64, 64, 64);
+constexpr COLORREF SHADOW_COLOR = RGB(8, 8, 8);
 
-const COLORREF BG_COLOR = RGB(32, 32, 32);
-const COLORREF CARD_COLOR = RGB(45, 45, 45);
-const COLORREF ACCENT_COLOR = RGB(0, 120, 215);
-const COLORREF HOVER_COLOR = RGB(16, 132, 208);
-const COLORREF ACTIVE_COLOR = RGB(0, 102, 180);
-const COLORREF TEXT_PRIMARY = RGB(255, 255, 255);
-const COLORREF TEXT_SECONDARY = RGB(150, 150, 150);
-const COLORREF BORDER_COLOR = RGB(70, 70, 70);
-const COLORREF PAUSE_COLOR = RGB(255, 193, 7);
-const COLORREF RESUME_COLOR = RGB(0, 120, 215);
+// Global variables
+struct AppState {
+    HWND hWnd = nullptr;
+    UINT dpi = 96;
+    bool isPaused = false;
+    bool btnHover = false;
+    bool btnPressed = false;
+    std::wstring statusMessage = L"Ready to manage Windows Update pause";
+    bool isOperationInProgress = false;
+} g_app;
 
-// Windows version checking functions
+struct GDIResources {
+    HFONT hFontTitle = nullptr;
+    HFONT hFontButton = nullptr;
+    HFONT hFontStatus = nullptr;
+    HBRUSH hBrushBg = nullptr;
+    HBRUSH hBrushCard = nullptr;
+    HDC hMemDC = nullptr;
+    HBITMAP hMemBitmap = nullptr;
+    RECT clientRect = {};
+} g_gdi;
+
+// ==================================================================
+// UTILITY FUNCTIONS
+// ==================================================================
+
+inline int Scale(int value) {
+    return MulDiv(value, g_app.dpi, 96);
+}
+
+inline RECT ScaleRect(int left, int top, int right, int bottom) {
+    return { Scale(left), Scale(top), Scale(right), Scale(bottom) };
+}
+
+// ==================================================================
+// WINDOWS VERSION CHECKING
+// ==================================================================
+
 bool IsWindows10OrLater() {
     OSVERSIONINFOEX osvi = { sizeof(OSVERSIONINFOEX) };
 
@@ -58,28 +104,20 @@ bool IsWindows10OrLater() {
         RtlGetVersionPtr RtlGetVersion = (RtlGetVersionPtr)GetProcAddress(hMod, "RtlGetVersion");
         if (RtlGetVersion) {
             NTSTATUS status = RtlGetVersion((PRTL_OSVERSIONINFOW)&osvi);
-            if (status == 0) { // STATUS_SUCCESS
-                // Windows 10 is version 10.0, Windows 11 is also 10.0 but with build >= 22000
+            if (status == 0) {
                 return (osvi.dwMajorVersion > 10) ||
                     (osvi.dwMajorVersion == 10 && osvi.dwMinorVersion >= 0);
             }
         }
     }
 
-    // Fallback to GetVersionEx (deprecated but still works)
-    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
-    if (GetVersionEx((OSVERSIONINFO*)&osvi)) {
-        return (osvi.dwMajorVersion > 10) ||
-            (osvi.dwMajorVersion == 10 && osvi.dwMinorVersion >= 0);
-    }
-
-    // If all else fails, assume it's supported (better than blocking)
-    return true;
+    // Fallback
+    return IsWindows10OrGreater();
 }
 
 bool CheckWindowsVersion() {
     if (!IsWindows10OrLater()) {
-        MessageBox(NULL,
+        MessageBoxW(nullptr,
             L"This application requires Windows 10 or later.\n\n"
             L"Your current Windows version is not supported.\n"
             L"Please upgrade to Windows 10 or Windows 11 to use this application.",
@@ -90,536 +128,534 @@ bool CheckWindowsVersion() {
     return true;
 }
 
-std::wstring GetWindowsVersionString() {
-    OSVERSIONINFOEX osvi = { sizeof(OSVERSIONINFOEX) };
+// ==================================================================
+// WINDOW POSITIONING AND DPI
+// ==================================================================
 
-    // Use RtlGetVersion for more accurate version detection
-    typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
-    HMODULE hMod = GetModuleHandle(L"ntdll.dll");
-    if (hMod) {
-        RtlGetVersionPtr RtlGetVersion = (RtlGetVersionPtr)GetProcAddress(hMod, "RtlGetVersion");
-        if (RtlGetVersion) {
-            RtlGetVersion((PRTL_OSVERSIONINFOW)&osvi);
-        }
-    }
+void CenterWindowOnMonitor(HWND hWnd) {
+    RECT wr;
+    GetWindowRect(hWnd, &wr);
+    int w = wr.right - wr.left;
+    int h = wr.bottom - wr.top;
 
-    std::wstring versionStr = L"Windows ";
+    HMONITOR hMon = MonitorFromWindow(hWnd, MONITOR_DEFAULTTOPRIMARY);
+    UINT dpiX = 96, dpiY = 96;
+    GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
 
-    if (osvi.dwMajorVersion == 10) {
-        if (osvi.dwBuildNumber >= 22000) {
-            versionStr += L"11";
-        }
-        else {
-            versionStr += L"10";
-        }
-        versionStr += L" (Build " + std::to_wstring(osvi.dwBuildNumber) + L")";
-    }
-    else if (osvi.dwMajorVersion == 6) {
-        if (osvi.dwMinorVersion == 3) {
-            versionStr += L"8.1";
-        }
-        else if (osvi.dwMinorVersion == 2) {
-            versionStr += L"8";
-        }
-        else if (osvi.dwMinorVersion == 1) {
-            versionStr += L"7";
-        }
-    }
-    else {
-        versionStr += L"Unknown Version";
-    }
+    int cx = GetSystemMetricsForDpi(SM_CXSCREEN, dpiX);
+    int cy = GetSystemMetricsForDpi(SM_CYSCREEN, dpiY);
 
-    return versionStr;
+    SetWindowPos(hWnd, nullptr, (cx - w) / 2, (cy - h) / 2, 0, 0,
+        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-void CenterWindowOnScreen(HWND hWnd) {
-    SetProcessDPIAware();
+// ==================================================================
+// SYSTEM INTERACTION
+// ==================================================================
 
-    RECT windowRect;
-    GetWindowRect(hWnd, &windowRect);
-    int windowWidth = windowRect.right - windowRect.left;
-    int windowHeight = windowRect.bottom - windowRect.top;
-
-    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-
-    int centerX = (screenWidth - windowWidth) / 2;
-    int centerY = (screenHeight - windowHeight) / 2;
-
-    SetWindowPos(hWnd, NULL, centerX, centerY, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+void PlaySystemSound(bool success) {
+    PlaySoundW(success ? MAKEINTRESOURCEW(SND_ALIAS_SYSTEMDEFAULT)
+        : MAKEINTRESOURCEW(SND_ALIAS_SYSTEMHAND),
+        nullptr, SND_ALIAS_ID | SND_ASYNC);
 }
 
-void PlaySystemSound(bool isSuccess) {
-    if (isSuccess) {
-        PlaySound(MAKEINTRESOURCE(SND_ALIAS_SYSTEMDEFAULT), NULL, SND_ALIAS_ID | SND_ASYNC);
-    }
-    else {
-        PlaySound(MAKEINTRESOURCE(SND_ALIAS_SYSTEMHAND), NULL, SND_ALIAS_ID | SND_ASYNC);
-    }
+void OpenWindowsUpdateSettings() {
+    ShellExecuteW(nullptr, L"open", L"ms-settings:windowsupdate",
+        nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-std::wstring ReadRegString(const std::wstring& name) {
+// ==================================================================
+// REGISTRY OPERATIONS
+// ==================================================================
+
+std::wstring ReadRegString(const wchar_t* valueName) {
     HKEY hKey;
-    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
-        0, KEY_READ, &hKey) != ERROR_SUCCESS) return L"";
-
-    wchar_t buf[256]; DWORD size = sizeof(buf);
-    if (RegQueryValueEx(hKey, name.c_str(), NULL, NULL, (LPBYTE)buf, &size) != ERROR_SUCCESS) {
-        RegCloseKey(hKey);
+        0, KEY_READ, &hKey) != ERROR_SUCCESS) {
         return L"";
     }
+
+    wchar_t buffer[512];
+    DWORD bufferSize = sizeof(buffer);
+    std::wstring result;
+
+    if (RegQueryValueExW(hKey, valueName, nullptr, nullptr,
+        reinterpret_cast<BYTE*>(buffer), &bufferSize) == ERROR_SUCCESS) {
+        result = buffer;
+    }
+
     RegCloseKey(hKey);
-    return std::wstring(buf);
+    return result;
 }
+
+bool SetRegString(const wchar_t* valueName, const std::wstring& value) {
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+        0, KEY_SET_VALUE, &hKey) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    LONG result = RegSetValueExW(hKey, valueName, 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(value.c_str()),
+        static_cast<DWORD>((value.length() + 1) * sizeof(wchar_t)));
+
+    RegCloseKey(hKey);
+    return result == ERROR_SUCCESS;
+}
+
+bool DeleteRegValue(const wchar_t* valueName) {
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+        0, KEY_SET_VALUE, &hKey) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    LONG result = RegDeleteValueW(hKey, valueName);
+    RegCloseKey(hKey);
+    return result == ERROR_SUCCESS;
+}
+
+// ==================================================================
+// PAUSE/RESUME LOGIC
+// ==================================================================
 
 bool IsPaused() {
-    std::wstring paused = ReadRegString(L"PauseUpdatesExpiryTime");
-    return !paused.empty();
+    return !ReadRegString(L"PauseUpdatesExpiryTime").empty();
 }
 
-void UpdateStatus() {
-    isPaused = IsPaused();
-    SetWindowText(hLblStatus, lastOperationResult.c_str());
-}
+std::wstring GetCurrentTimeString() {
+    SYSTEMTIME st;
+    GetSystemTime(&st);
 
-void RemovePause() {
-    HKEY hKey;
-    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
-        RegDeleteValue(hKey, L"PauseUpdatesExpiryTime");
-        RegDeleteValue(hKey, L"PauseFeatureUpdatesEndTime");
-        RegDeleteValue(hKey, L"PauseQualityUpdatesEndTime");
-        RegDeleteValue(hKey, L"PauseFeatureUpdatesStartTime");
-        RegDeleteValue(hKey, L"PauseQualityUpdatesStartTime");
-        RegDeleteValue(hKey, L"FlightSettingsMaxPauseDays");
-        RegCloseKey(hKey);
-    }
-}
-
-void ApplyPause() {
-    const std::wstring end = L"4750-12-12T00:00:00Z";
-    SYSTEMTIME st; GetSystemTime(&st);
-    wchar_t start[64];
-    wsprintf(start, L"%04d-%02d-%02dT%02d:%02d:%02dZ",
+    wchar_t timeStr[64];
+    swprintf_s(timeStr, L"%04d-%02d-%02dT%02d:%02d:%02dZ",
         st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 
-    HKEY hKey;
-    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
-        RegSetValueEx(hKey, L"PauseUpdatesExpiryTime", 0, REG_SZ, (const BYTE*)end.c_str(), (DWORD)((end.size() + 1) * sizeof(wchar_t)));
-        RegSetValueEx(hKey, L"PauseFeatureUpdatesEndTime", 0, REG_SZ, (const BYTE*)end.c_str(), (DWORD)((end.size() + 1) * sizeof(wchar_t)));
-        RegSetValueEx(hKey, L"PauseQualityUpdatesEndTime", 0, REG_SZ, (const BYTE*)end.c_str(), (DWORD)((end.size() + 1) * sizeof(wchar_t)));
-        RegSetValueEx(hKey, L"PauseFeatureUpdatesStartTime", 0, REG_SZ, (const BYTE*)start, (DWORD)((wcslen(start) + 1) * sizeof(wchar_t)));
-        RegSetValueEx(hKey, L"PauseQualityUpdatesStartTime", 0, REG_SZ, (const BYTE*)start, (DWORD)((wcslen(start) + 1) * sizeof(wchar_t)));
-        DWORD days = 2000 * 365;
-        RegSetValueEx(hKey, L"FlightSettingsMaxPauseDays", 0, REG_SZ, (const BYTE*)std::to_wstring(days).c_str(), (DWORD)((std::to_wstring(days).size() + 1) * sizeof(wchar_t)));
-        RegCloseKey(hKey);
-    }
+    return timeStr;
+}
+
+bool ApplyPause() {
+    const std::wstring endTime = L"4750-12-12T00:00:00Z";
+    const std::wstring startTime = GetCurrentTimeString();
+
+    bool success = true;
+    success &= SetRegString(L"PauseUpdatesExpiryTime", endTime);
+    success &= SetRegString(L"PauseFeatureUpdatesEndTime", endTime);
+    success &= SetRegString(L"PauseQualityUpdatesEndTime", endTime);
+    success &= SetRegString(L"PauseFeatureUpdatesStartTime", startTime);
+    success &= SetRegString(L"PauseQualityUpdatesStartTime", startTime);
+
+    return success;
+}
+
+bool RemovePause() {
+    bool success = true;
+    success &= DeleteRegValue(L"PauseUpdatesExpiryTime");
+    success &= DeleteRegValue(L"PauseFeatureUpdatesEndTime");
+    success &= DeleteRegValue(L"PauseQualityUpdatesEndTime");
+    success &= DeleteRegValue(L"PauseFeatureUpdatesStartTime");
+    success &= DeleteRegValue(L"PauseQualityUpdatesStartTime");
+
+    return success;
 }
 
 void TogglePause() {
-    if (isPaused) {
-        RemovePause();
+    if (g_app.isOperationInProgress) return;
 
-        if (!IsPaused()) {
-            lastOperationResult = L"✅ Pause successfully removed - Updates can now install";
+    g_app.isOperationInProgress = true;
+    bool wasThePaused = g_app.isPaused;
+
+    if (wasThePaused) {
+        // Resume updates
+        if (RemovePause() && !IsPaused()) {
+            g_app.statusMessage = L"✅ Updates resumed successfully";
             PlaySystemSound(true);
-
-            ShellExecute(NULL, L"open", L"ms-settings:windowsupdate", NULL, NULL, SW_SHOWNORMAL);
+            OpenWindowsUpdateSettings();
         }
         else {
-            lastOperationResult = L"❌ Failed to remove pause - Check administrator privileges";
+            g_app.statusMessage = L"❌ Failed to resume updates - Check administrator privileges";
             PlaySystemSound(false);
         }
     }
     else {
-        ApplyPause();
-
-        if (IsPaused()) {
-            lastOperationResult = L"✅ Pause successfully applied - Updates blocked until 4750";
+        // Pause updates
+        if (ApplyPause() && IsPaused()) {
+            g_app.statusMessage = L"✅ Updates paused until year 4750";
             PlaySystemSound(true);
-
-            ShellExecute(NULL, L"open", L"ms-settings:windowsupdate", NULL, NULL, SW_SHOWNORMAL);
+            OpenWindowsUpdateSettings();
         }
         else {
-            lastOperationResult = L"❌ Failed to apply pause - Check administrator privileges";
+            g_app.statusMessage = L"❌ Failed to pause updates - Check administrator privileges";
             PlaySystemSound(false);
         }
     }
 
-    UpdateStatus();
+    g_app.isPaused = IsPaused();
+    g_app.isOperationInProgress = false;
 }
 
-void CreateModernGDI() {
-    hFontTitle = CreateFont(24, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-        DEFAULT_PITCH, L"Segoe UI Variable Display");
+// ==================================================================
+// GDI RESOURCE MANAGEMENT
+// ==================================================================
 
-    hFontButton = CreateFont(16, 0, 0, 0, FW_MEDIUM, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-        DEFAULT_PITCH, L"Segoe UI Variable Text");
+void CreateGDIResources() {
+    // Create fonts
+    auto createFont = [](int size, int weight, const wchar_t* family = L"Segoe UI Variable") -> HFONT {
+        return CreateFontW(-Scale(size), 0, 0, 0, weight, 0, 0, 0,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH, family);
+        };
 
-    hFontStatus = CreateFont(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-        DEFAULT_PITCH, L"Segoe UI Variable Text");
+    g_gdi.hFontTitle = createFont(22, FW_SEMIBOLD, L"Segoe UI Variable Display");
+    g_gdi.hFontButton = createFont(15, FW_MEDIUM);
+    g_gdi.hFontStatus = createFont(13, FW_NORMAL);
 
-    hBrushBg = CreateSolidBrush(BG_COLOR);
-    hBrushCard = CreateSolidBrush(CARD_COLOR);
-    hBrushAccent = CreateSolidBrush(ACCENT_COLOR);
-    hBrushHover = CreateSolidBrush(HOVER_COLOR);
-    hBrushActive = CreateSolidBrush(ACTIVE_COLOR);
-
-    hPenBorder = CreatePen(PS_SOLID, 1, BORDER_COLOR);
-    hPenAccent = CreatePen(PS_SOLID, 2, ACCENT_COLOR);
+    // Create brushes
+    g_gdi.hBrushBg = CreateSolidBrush(BG_COLOR);
+    g_gdi.hBrushCard = CreateSolidBrush(CARD_COLOR);
 }
 
-void DestroyModernGDI() {
-    DeleteObject(hFontTitle);
-    DeleteObject(hFontButton);
-    DeleteObject(hFontStatus);
-    DeleteObject(hBrushBg);
-    DeleteObject(hBrushCard);
-    DeleteObject(hBrushAccent);
-    DeleteObject(hBrushHover);
-    DeleteObject(hBrushActive);
-    DeleteObject(hPenBorder);
-    DeleteObject(hPenAccent);
+void DestroyGDIResources() {
+    if (g_gdi.hFontTitle) { DeleteObject(g_gdi.hFontTitle); g_gdi.hFontTitle = nullptr; }
+    if (g_gdi.hFontButton) { DeleteObject(g_gdi.hFontButton); g_gdi.hFontButton = nullptr; }
+    if (g_gdi.hFontStatus) { DeleteObject(g_gdi.hFontStatus); g_gdi.hFontStatus = nullptr; }
+    if (g_gdi.hBrushBg) { DeleteObject(g_gdi.hBrushBg); g_gdi.hBrushBg = nullptr; }
+    if (g_gdi.hBrushCard) { DeleteObject(g_gdi.hBrushCard); g_gdi.hBrushCard = nullptr; }
 
-    if (hMemDC) {
-        DeleteDC(hMemDC);
-        hMemDC = NULL;
-    }
-    if (hMemBitmap) {
-        DeleteObject(hMemBitmap);
-        hMemBitmap = NULL;
-    }
+    if (g_gdi.hMemDC) { DeleteDC(g_gdi.hMemDC); g_gdi.hMemDC = nullptr; }
+    if (g_gdi.hMemBitmap) { DeleteObject(g_gdi.hMemBitmap); g_gdi.hMemBitmap = nullptr; }
+}
+
+void UpdateGDIResources() {
+    DestroyGDIResources();
+    CreateGDIResources();
 }
 
 void InitializeDoubleBuffering(HWND hWnd) {
-    GetClientRect(hWnd, &clientRect);
+    GetClientRect(hWnd, &g_gdi.clientRect);
     HDC hdc = GetDC(hWnd);
 
-    if (hMemDC) DeleteDC(hMemDC);
-    if (hMemBitmap) DeleteObject(hMemBitmap);
+    if (g_gdi.hMemDC) DeleteDC(g_gdi.hMemDC);
+    if (g_gdi.hMemBitmap) DeleteObject(g_gdi.hMemBitmap);
 
-    hMemDC = CreateCompatibleDC(hdc);
-    hMemBitmap = CreateCompatibleBitmap(hdc, clientRect.right, clientRect.bottom);
-    SelectObject(hMemDC, hMemBitmap);
+    g_gdi.hMemDC = CreateCompatibleDC(hdc);
+    g_gdi.hMemBitmap = CreateCompatibleBitmap(hdc, g_gdi.clientRect.right, g_gdi.clientRect.bottom);
+    SelectObject(g_gdi.hMemDC, g_gdi.hMemBitmap);
 
     ReleaseDC(hWnd, hdc);
 }
 
-void DrawModernButton(HDC hdc, RECT rect, const wchar_t* text, bool isHovered, bool isPressed, bool isPauseButton = false) {
-    HBRUSH brush;
+// ==================================================================
+// DRAWING FUNCTIONS
+// ==================================================================
+
+void DrawCard(HDC hdc, const RECT& rect, bool withShadow = true)
+{
+    if (withShadow)
+    {
+        constexpr int SHADOW_OFFSET = 3;
+        constexpr int SHADOW_BLUR = 0;
+        RECT shadowRect = rect;
+        shadowRect.left += Scale(SHADOW_OFFSET);
+        shadowRect.top += Scale(SHADOW_OFFSET);
+        shadowRect.right += Scale(SHADOW_OFFSET);
+        shadowRect.bottom += Scale(SHADOW_OFFSET);
+
+        HBRUSH shadowBrush = CreateSolidBrush(SHADOW_COLOR);
+        FillRect(hdc, &shadowRect, shadowBrush);
+        DeleteObject(shadowBrush);
+    }
+
+    FillRect(hdc, &rect, g_gdi.hBrushCard);
+
+    HBRUSH borderBrush = CreateSolidBrush(BORDER_COLOR);
+    FrameRect(hdc, &rect, borderBrush);
+    DeleteObject(borderBrush);
+}
+
+void DrawButton(HDC hdc, const RECT& rect, const wchar_t* text, bool isHovered, bool isPressed) {
+    COLORREF buttonColor;
 
     if (isPressed) {
-        brush = hBrushActive;
+        buttonColor = ACTIVE_COLOR;
     }
     else if (isHovered) {
-        if (isPauseButton && isPaused) {
-            brush = CreateSolidBrush(PAUSE_COLOR);
-        }
-        else if (isPauseButton && !isPaused) {
-            brush = CreateSolidBrush(RGB(40, 167, 69));
-        }
-        else {
-            brush = hBrushHover;
-        }
+        buttonColor = g_app.isPaused ? PAUSE_COLOR : RESUME_COLOR;
     }
     else {
-        if (isPauseButton && isPaused) {
-            brush = CreateSolidBrush(RESUME_COLOR);
-        }
-        else if (isPauseButton && !isPaused) {
-            brush = CreateSolidBrush(ACCENT_COLOR);
-        }
-        else {
-            brush = hBrushAccent;
-        }
+        buttonColor = g_app.isPaused ? ACCENT_COLOR : ACCENT_COLOR;
     }
 
-    FillRect(hdc, &rect, brush);
+    HBRUSH buttonBrush = CreateSolidBrush(buttonColor);
+    FillRect(hdc, &rect, buttonBrush);
+    DeleteObject(buttonBrush);
 
-    if (isPauseButton && (isHovered || (!isPaused && !isHovered) || (isPaused && !isHovered))) {
-        if (brush != hBrushAccent && brush != hBrushHover && brush != hBrushActive) {
-            DeleteObject(brush);
-        }
-    }
-
+    // Draw button text
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, TEXT_PRIMARY);
-    SelectObject(hdc, hFontButton);
-    DrawText(hdc, text, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, g_gdi.hFontButton);
+    DrawTextW(hdc, text, -1, const_cast<RECT*>(&rect), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
-void DrawModernCard(HDC hdc, RECT rect) {
-    RECT shadowRect = rect;
-    OffsetRect(&shadowRect, 2, 2);
-
-    HBRUSH shadowBrush = CreateSolidBrush(RGB(0, 0, 0));
-    FillRect(hdc, &shadowRect, shadowBrush);
-    DeleteObject(shadowBrush);
-
-    FillRect(hdc, &rect, hBrushCard);
-    HBRUSH borderBrush = CreateSolidBrush(BORDER_COLOR);
-    FrameRect(hdc, &rect, borderBrush);
-    DeleteObject(borderBrush);
-}
-
-void DrawStatusPanel(HDC hdc, RECT rect) {
-    FillRect(hdc, &rect, hBrushCard);
-
-    HBRUSH borderBrush = CreateSolidBrush(BORDER_COLOR);
-    FrameRect(hdc, &rect, borderBrush);
-    DeleteObject(borderBrush);
+void DrawStatusPanel(HDC hdc, const RECT& rect, bool withShadow = true)
+{
+    DrawCard(hdc, rect, withShadow);
 
     SetBkMode(hdc, TRANSPARENT);
 
-    if (lastOperationResult.find(L"✅") != std::wstring::npos) {
-        SetTextColor(hdc, RGB(16, 124, 16));
-    }
-    else if (lastOperationResult.find(L"❌") != std::wstring::npos) {
-        SetTextColor(hdc, RGB(220, 53, 69));
-    }
-    else {
-        SetTextColor(hdc, TEXT_SECONDARY);
-    }
+    COLORREF textColor = TEXT_SECONDARY;
+    if (g_app.statusMessage.find(L"✅") != std::wstring::npos)
+        textColor = TEXT_SUCCESS;
+    else if (g_app.statusMessage.find(L"❌") != std::wstring::npos)
+        textColor = TEXT_ERROR;
 
-    SelectObject(hdc, hFontStatus);
-    DrawText(hdc, lastOperationResult.c_str(), -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SetTextColor(hdc, textColor);
+    SelectObject(hdc, g_gdi.hFontStatus);
+    DrawTextW(hdc, g_app.statusMessage.c_str(), -1,
+        const_cast<RECT*>(&rect),
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
-void PaintWindow(HWND hWnd) {
-    if (!hMemDC) return;
+void PaintWindow(HWND hWnd)
+{
+    if (!g_gdi.hMemDC) return;
 
-    FillRect(hMemDC, &clientRect, hBrushBg);
+    FillRect(g_gdi.hMemDC, &g_gdi.clientRect, g_gdi.hBrushBg);
 
-    RECT cardRect = { 20, 60, 415, 125 };
-    DrawModernCard(hMemDC, cardRect);
+    // Title
+    RECT titleRect = ScaleRect(H_MARGIN, 15,
+        WINDOW_WIDTH - H_MARGIN * 2, 50);
+    SetBkMode(g_gdi.hMemDC, TRANSPARENT);
+    SetTextColor(g_gdi.hMemDC, TEXT_PRIMARY);
+    SelectObject(g_gdi.hMemDC, g_gdi.hFontTitle);
+    DrawTextW(g_gdi.hMemDC, L"Windows Update Pauser", -1, &titleRect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    RECT titleRect = { 10, 15, 425, 50 };
-    SetBkMode(hMemDC, TRANSPARENT);
-    SetTextColor(hMemDC, TEXT_PRIMARY);
-    SelectObject(hMemDC, hFontTitle);
-    DrawText(hMemDC, L"Windows Update Pauser", -1, &titleRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    // Card
+    RECT cardRect = ScaleRect(H_MARGIN, 60,
+        WINDOW_WIDTH - H_MARGIN * 2, 130);
+    DrawCard(g_gdi.hMemDC, cardRect);
 
-    RECT pauseRect = { 40, 75, 395, 110 };
+    // Button
+    RECT buttonRect = ScaleRect(H_MARGIN + 20, 80,
+        WINDOW_WIDTH - H_MARGIN * 2 - 20, 115);
+    const wchar_t* buttonText = g_app.isPaused ? L"▶ Resume Updates"
+        : L"⏸ Pause Until 4750";
+    DrawButton(g_gdi.hMemDC, buttonRect, buttonText,
+        g_app.btnHover, g_app.btnPressed);
 
-    const wchar_t* pauseText = isPaused ? L"▶ Resume Updates" : L"▌▌ Pause Until 4750";
-
-    DrawModernButton(hMemDC, pauseRect, pauseText, isHoveredPause, isPressedPause, true);
-
-    HPEN hPenHorizontalSeparator = CreatePen(PS_SOLID, 1, RGB(80, 80, 80));
-    HPEN hOldPen = (HPEN)SelectObject(hMemDC, hPenHorizontalSeparator);
-    SelectObject(hMemDC, hOldPen);
-    DeleteObject(hPenHorizontalSeparator);
-
-    RECT statusRect = { 20, 143, 415, 173 };
-
-    DrawStatusPanel(hMemDC, statusRect);
+    // Status panel
+    RECT statusRect = ScaleRect(H_MARGIN, 145,
+        WINDOW_WIDTH - H_MARGIN * 2, 180);
+    DrawStatusPanel(g_gdi.hMemDC, statusRect, true);
 }
 
-LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
+// ==================================================================
+// WINDOW PROCEDURES
+// ==================================================================
 
-    case WM_CREATE: {
-        hMainWnd = hWnd;
-        isPaused = IsPaused();
+void EnableModernWindowStyle(HWND hWnd) {
+    // Enable dark mode
+    BOOL darkMode = TRUE;
+    DwmSetWindowAttribute(hWnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkMode, sizeof(darkMode));
 
-        BOOL darkMode = TRUE;
-        DwmSetWindowAttribute(hWnd, 20, &darkMode, sizeof(darkMode));
+    // Enable rounded corners (Windows 11)
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+    enum DWM_WINDOW_CORNER_PREFERENCE {
+        DWMWCP_DEFAULT = 0,
+        DWMWCP_DONOTROUND = 1,
+        DWMWCP_ROUND = 2,
+        DWMWCP_ROUNDSMALL = 3
+    };
+#endif
 
-        // Load custom icons from resources
-        HICON hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON));
-        HICON hIconSmall = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON_SMALL));
+    DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+    DwmSetWindowAttribute(hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+}
 
-        if (!hIcon) {
-            hIcon = LoadIcon(NULL, IDI_APPLICATION);
-        }
-        if (!hIconSmall) {
-            hIconSmall = LoadIcon(NULL, IDI_APPLICATION);
-        }
+RECT GetButtonRect() {
+    return ScaleRect(40, 80, WINDOW_WIDTH - 40, 115);
+}
 
-        SendMessage(hWnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
-        SendMessage(hWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+    case WM_CREATE:
+        g_app.hWnd = hWnd;
+        g_app.dpi = GetDpiForWindow(hWnd);
+        g_app.isPaused = IsPaused();
 
+        CreateGDIResources();
         InitializeDoubleBuffering(hWnd);
+        EnableModernWindowStyle(hWnd);
 
-        hLblTitle = CreateWindow(L"STATIC", L"Windows Update Pause Control",
-            WS_CHILD | SS_CENTER,
-            10, 15, 415, 35, hWnd, (HMENU)IDC_LBL_TITLE, NULL, NULL);
-
-        hBtnPause = CreateWindow(L"BUTTON",
-            isPaused ? L"▶ Resume Updates" : L"▌▌ Pause Until 4750",
-            WS_CHILD | BS_PUSHBUTTON | BS_FLAT,
-            40, 75, 355, 35, hWnd, (HMENU)IDC_BTN_PAUSE, NULL, NULL);
-
-        hLblStatus = CreateWindow(L"STATIC", L"Ready to manage Windows Update pause",
-            WS_CHILD | SS_CENTER,
-            20, 140, 395, 30, hWnd, (HMENU)IDC_LBL_STATUS, NULL, NULL);
-
-        UpdateStatus();
-
-        SetTimer(hWnd, 1, 50, NULL);
-
-        CenterWindowOnScreen(hWnd);
-    } break;
-
-    case WM_SIZE: {
-        InitializeDoubleBuffering(hWnd);
-        InvalidateRect(hWnd, NULL, FALSE);
-    } break;
-
-    case WM_TIMER: {
-        POINT pt;
-        GetCursorPos(&pt);
-        ScreenToClient(hWnd, &pt);
-
-        static bool prevHoverPause = false;
-
-        RECT pauseRect = { 40, 75, 395, 110 };
-
-        bool newHoverPause = PtInRect(&pauseRect, pt);
-
-        if (newHoverPause != prevHoverPause) {
-            isHoveredPause = newHoverPause;
-            prevHoverPause = newHoverPause;
-
-            InvalidateRect(hWnd, NULL, FALSE);
-        }
-    } break;
-
-    case WM_COMMAND: {
-        switch (LOWORD(wParam)) {
-        case IDC_BTN_PAUSE:
-            TogglePause();
-            SetWindowText(hBtnPause, isPaused ? L"▶ Resume Updates" : L"▌▌ Pause Until 4750");
-            InvalidateRect(hWnd, NULL, FALSE);
-            break;
-        }
-    } break;
+        SetTimer(hWnd, TIMER_ID, TIMER_INTERVAL, nullptr);
+        return 0;
 
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
 
-        if (hMemDC) {
-            PaintWindow(hWnd);
-
-            BitBlt(hdc, 0, 0, clientRect.right, clientRect.bottom, hMemDC, 0, 0, SRCCOPY);
-        }
+        PaintWindow(hWnd);
+        BitBlt(hdc, 0, 0, g_gdi.clientRect.right, g_gdi.clientRect.bottom,
+            g_gdi.hMemDC, 0, 0, SRCCOPY);
 
         EndPaint(hWnd, &ps);
         return 0;
-    } break;
+    }
 
-    case WM_ERASEBKGND: {
-        return 1;
-    } break;
+    case WM_ERASEBKGND:
+        return 1; // Prevent flicker
 
-    case WM_LBUTTONDOWN: {
-        POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+    case WM_SIZE:
+        InitializeDoubleBuffering(hWnd);
+        InvalidateRect(hWnd, nullptr, FALSE);
+        return 0;
 
-        RECT pauseRect = { 40, 75, 395, 110 };
+    case WM_TIMER:
+        if (wParam == TIMER_ID) {
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(hWnd, &pt);
 
-        if (PtInRect(&pauseRect, pt)) {
-            isPressedPause = true;
-            SetCapture(hWnd);
-            InvalidateRect(hWnd, &pauseRect, FALSE);
-            return 0;
-        }
-    } break;
+            RECT buttonRect = GetButtonRect();
+            bool newHover = PtInRect(&buttonRect, pt);
 
-    case WM_LBUTTONUP: {
-        if (GetCapture() == hWnd) {
-            ReleaseCapture();
-
-            POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
-            RECT pauseRect = { 40, 75, 395, 110 };
-
-            if (isPressedPause) {
-                isPressedPause = false;
-                InvalidateRect(hWnd, &pauseRect, FALSE);
-
-                if (PtInRect(&pauseRect, pt)) {
-                    SendMessage(hWnd, WM_COMMAND, IDC_BTN_PAUSE, 0);
-                }
+            if (newHover != g_app.btnHover) {
+                g_app.btnHover = newHover;
+                InvalidateRect(hWnd, &buttonRect, FALSE);
             }
         }
-    } break;
+        return 0;
 
     case WM_SETCURSOR: {
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(hWnd, &pt);
 
-        RECT pauseRect = { 40, 75, 395, 110 };
-
-        if (PtInRect(&pauseRect, pt)) {
-            SetCursor(hHandCursor);
+        if (PtInRect(&GetButtonRect(), pt)) {
+            SetCursor(LoadCursor(nullptr, IDC_HAND));
             return TRUE;
         }
-
-        return DefWindowProc(hWnd, msg, wParam, lParam);
-    } break;
-
-    case WM_DESTROY: {
-        KillTimer(hWnd, 1);
-        DestroyModernGDI();
-
-        // Get and destroy icons if they exist
-        HICON hIcon = (HICON)SendMessage(hWnd, WM_GETICON, ICON_BIG, 0);
-        HICON hIconSmall = (HICON)SendMessage(hWnd, WM_GETICON, ICON_SMALL, 0);
-        if (hIcon) DestroyIcon(hIcon);
-        if (hIconSmall) DestroyIcon(hIconSmall);
-
-        PostQuitMessage(0);
-    } break;
-
-    default:
-        return DefWindowProc(hWnd, msg, wParam, lParam);
+        return DefWindowProc(hWnd, message, wParam, lParam);
     }
-    return 0;
+
+    case WM_LBUTTONDOWN: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        if (PtInRect(&GetButtonRect(), pt)) {
+            g_app.btnPressed = true;
+            SetCapture(hWnd);
+            InvalidateRect(hWnd, &GetButtonRect(), FALSE);
+        }
+        return 0;
+    }
+
+    case WM_LBUTTONUP: {
+        if (g_app.btnPressed) {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            ReleaseCapture();
+            g_app.btnPressed = false;
+
+            if (PtInRect(&GetButtonRect(), pt)) {
+                TogglePause();
+            }
+
+            InvalidateRect(hWnd, nullptr, TRUE);
+        }
+        return 0;
+    }
+
+    case WM_DPICHANGED: {
+        g_app.dpi = LOWORD(wParam);
+        UpdateGDIResources();
+
+        RECT* prcNewWindow = reinterpret_cast<RECT*>(lParam);
+        SetWindowPos(hWnd, nullptr, prcNewWindow->left, prcNewWindow->top,
+            prcNewWindow->right - prcNewWindow->left,
+            prcNewWindow->bottom - prcNewWindow->top,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+
+        InitializeDoubleBuffering(hWnd);
+        InvalidateRect(hWnd, nullptr, TRUE);
+        return 0;
+    }
+
+    case WM_DESTROY:
+        KillTimer(hWnd, TIMER_ID);
+        DestroyGDIResources();
+        PostQuitMessage(0);
+        return 0;
+    }
+
+    return DefWindowProc(hWnd, message, wParam, lParam);
 }
 
-int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
-    // Check Windows version before doing anything else
+// ==================================================================
+// ENTRY POINT
+// ==================================================================
+
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow) {
+    // Check Windows version compatibility
     if (!CheckWindowsVersion()) {
-        return 1; // Exit if not Windows 10+
+        return 1;
     }
 
-    INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_WIN95_CLASSES };
+    // Enable DPI awareness
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+    // Initialize common controls
+    INITCOMMONCONTROLSEX icex = { sizeof(INITCOMMONCONTROLSEX), ICC_WIN95_CLASSES };
     InitCommonControlsEx(&icex);
 
-    CreateModernGDI();
+    // Register window class
+    HICON hIconLarge = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_ICON));
+    HICON hIconSmall = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_ICON_SMALL));
 
-    hHandCursor = LoadCursor(NULL, IDC_HAND);
-
-    WNDCLASS wc = {};
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX) };
     wc.lpfnWndProc = WndProc;
-    wc.hInstance = hInst;
+    wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
-    wc.hbrBackground = NULL;
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_ICON));
-    wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hbrBackground = nullptr;
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.hIcon = hIconLarge;
+    wc.hIconSm = hIconSmall;
 
-    RegisterClass(&wc);
+    if (!RegisterClassEx(&wc)) {
+        MessageBoxW(nullptr, L"Failed to register window class", L"Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
 
-    HWND hwnd = CreateWindow(CLASS_NAME, L"Windows Update Pauser",
+    // Create main window
+    HWND hWnd = CreateWindowExW(
+        0,
+        CLASS_NAME,
+        L"Windows Update Pauser",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 450, 240,
-        NULL, NULL, hInst, NULL);
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        Scale(WINDOW_WIDTH), Scale(WINDOW_HEIGHT),
+        nullptr, nullptr, hInstance, nullptr
+    );
 
-    if (!hwnd) return 0;
+    if (!hWnd) {
+        MessageBoxW(nullptr, L"Failed to create window", L"Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
 
-    ShowWindow(hwnd, nCmdShow);
-    UpdateWindow(hwnd);
+    // Center and show window
+    CenterWindowOnMonitor(hWnd);
+    ShowWindow(hWnd, nCmdShow);
+    UpdateWindow(hWnd);
 
+    // Message loop
     MSG msg;
-    while (GetMessage(&msg, NULL, 0, 0)) {
+    while (GetMessage(&msg, nullptr, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
 
-    return (int)msg.wParam;
+    return static_cast<int>(msg.wParam);
 }
