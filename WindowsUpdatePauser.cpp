@@ -629,6 +629,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         return 1;
     }
 
+    UINT dpi = 96;
+    HMONITOR hMon = MonitorFromPoint({}, MONITOR_DEFAULTTOPRIMARY);
+    GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, &dpi, &dpi);
+
+    int scaledWidth = MulDiv(WINDOW_WIDTH, dpi, 96);
+    int scaledHeight = MulDiv(WINDOW_HEIGHT, dpi, 96);
+
     // Create main window
     HWND hWnd = CreateWindowExW(
         0,
@@ -636,7 +643,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         L"Windows Update Pauser",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        Scale(WINDOW_WIDTH), Scale(WINDOW_HEIGHT),
+        scaledWidth, scaledHeight,
         nullptr, nullptr, hInstance, nullptr
     );
 
