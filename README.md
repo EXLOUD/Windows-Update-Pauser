@@ -32,7 +32,7 @@
 
 ## 🎯 What is Windows Update Pauser?
 
-Windows Update Pauser is a modern, user-friendly Windows application designed to provide complete control over Windows Updates. With its intuitive interface and powerful registry management, it allows you to pause Windows Updates until December 12, 4750, or resume them instantly with just one click.
+Windows Update Pauser is a modern, user-friendly Windows application designed to provide complete control over Windows Updates. With its intuitive interface it allows you to pause Windows Updates on 100 years, or resume them instantly with just one click.
 
 Unlike complex group policy configurations or command-line tools, this application provides a visual interface with real-time feedback, sound notifications, and seamless integration with Windows Update settings.
 
@@ -48,7 +48,6 @@ Unlike complex group policy configurations or command-line tools, this applicati
 - **Sound Notifications** - Audio confirmation after successful operations
 
 ### 🔧 Technical Capabilities
-- **Long-term Pause Control** - Pauses updates until December 12, 4750 (~2000 years)
 - **Complete Update Coverage** - Handles both feature and quality updates
 - **Registry Management** - Safe and reliable Windows registry modifications
 - **System Integration** - Automatically opens Windows Update settings after actions
@@ -88,7 +87,7 @@ The easiest way to get started is to download the pre-built executable.
 #### 4.1.3 Usage
 
 1. **Launch** the application as Administrator
-2. **Click** the **⏸️ Pause Until 4750** button to pause updates
+2. **Click** the **⏸️ Pause for 100 years** button to pause updates
 3. **Click** the **▶️ Resume Updates** button to resume updates
 4. **Receive** visual and audio feedback when operation completes
 5. **Windows Update settings** will open automatically after each action
@@ -175,7 +174,7 @@ The application modifies specific Windows registry values to control update beha
 The application handles update control through two main operations:
 
 **When Pausing:**
-- Sets expiration date to December 12, 4750
+- Sets expiration date to 100 years
 - Records current time as start time
 - Configures all update types (feature and quality)
 
