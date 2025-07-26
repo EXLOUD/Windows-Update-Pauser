@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://custom-icon-badges.demolab.com/badge/Version-v1.0.0-brightgreen?logo=tag&logoColor=white" />
+  <img src="https://custom-icon-badges.demolab.com/badge/Version-v1.0.5-brightgreen?logo=tag&logoColor=white" />
   <a href="https://github.com/EXLOUD/Windows-Update-Pauser/issues"><img alt="Issues" src="https://img.shields.io/github/issues/EXLOUD/Windows-Update-Pauser?color=F48D73" /></a>
   <img src="https://custom-icon-badges.demolab.com/badge/Visual%20Studio-2022-68217A?logo=visualstudio&logoColor=white" />
   <img src="https://custom-icon-badges.demolab.com/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white" />
