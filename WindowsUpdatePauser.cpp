@@ -34,9 +34,9 @@
 // CONSTANTS AND GLOBALS
 // ==================================================================
 
-constexpr wchar_t CLASS_NAME[] = L"WUPauser_Improved";
+constexpr wchar_t CLASS_NAME[] = L"WUPauser";
 constexpr int WINDOW_WIDTH = 465;
-constexpr int WINDOW_HEIGHT = 240;
+constexpr int WINDOW_HEIGHT = 250;
 constexpr int H_MARGIN = 20;
 constexpr int TIMER_ID = 1;
 constexpr int TIMER_INTERVAL = 50;
@@ -237,27 +237,206 @@ std::wstring GetCurrentTimeString() {
     return timeStr;
 }
 
-bool ApplyPause() {
-    const std::wstring endTime = L"4750-12-12T00:00:00Z";
-    const std::wstring startTime = GetCurrentTimeString();
+bool SetMaxPauseDays(DWORD maxDays) {
+    HKEY hKey;
+    LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+        0, KEY_SET_VALUE, &hKey);
 
+    if (result != ERROR_SUCCESS) {
+        result = RegCreateKeyExW(HKEY_LOCAL_MACHINE,
+            L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+            0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE,
+            nullptr, &hKey, nullptr);
+        if (result != ERROR_SUCCESS) {
+            return false;
+        }
+    }
+
+    result = RegSetValueExW(hKey, L"FlightSettingsMaxPauseDays", 0, REG_DWORD,
+        reinterpret_cast<const BYTE*>(&maxDays), sizeof(DWORD));
+
+    RegCloseKey(hKey);
+    return (result == ERROR_SUCCESS);
+}
+
+std::wstring CalculateFutureDate100Years() {
+    SYSTEMTIME st;
+    GetSystemTime(&st);
+
+    int newYear = st.wYear + 100;
+
+    st.wYear = static_cast<WORD>(newYear);
+    st.wMonth = 12;
+    st.wDay = 31;
+    st.wHour = 16;
+    st.wMinute = 15;
+    st.wSecond = 25;
+    st.wMilliseconds = 0;
+
+    wchar_t debugMessage[256];
+    swprintf_s(debugMessage, L"CalculateFutureDate100Years: Set date to %04d-%02d-%02d %02d:%02d:%02d\n",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    OutputDebugStringW(debugMessage);
+
+    wchar_t result[32];
+    swprintf_s(result, L"%04d-%02d-%02dT%02d:%02d:%02dZ",
+        st.wYear, st.wMonth, st.wDay,
+        st.wHour, st.wMinute, st.wSecond);
+
+    return std::wstring(result);
+}
+
+bool ApplyPause() {
+    // Встановлюємо максимальну кількість днів паузи - 100 років
+    // Формула: 100 років × 365.25 (середня к-сть днів на рік) = 36,525 днів
+    const DWORD maxDays = 36525; // 100 років
+
+    OutputDebugStringW(L"Starting Windows Update pause for 100 years...\n");
+
+    // Спочатку встановлюємо максимальну кількість днів паузи
+    if (!SetMaxPauseDays(maxDays)) {
+        OutputDebugStringW(L"Warning: Failed to set FlightSettingsMaxPauseDays\n");
+        // Продовжуємо спробу навіть якщо не вдалося встановити максимум
+    }
+    else {
+        OutputDebugStringW(L"Successfully set FlightSettingsMaxPauseDays\n");
+    }
+
+    // Отримуємо поточний час і обчислюємо кінцеву дату (через 100 років)
+    const std::wstring startTime = GetCurrentTimeString();
+    const std::wstring endTime = CalculateFutureDate100Years();
+
+    if (startTime.empty()) {
+        OutputDebugStringW(L"Error: Failed to get current time\n");
+        return false;
+    }
+
+    // Логування дат
+    wchar_t logMessage[512];
+    swprintf_s(logMessage, L"Pause start time: %s\n", startTime.c_str());
+    OutputDebugStringW(logMessage);
+    swprintf_s(logMessage, L"Pause end time: %s\n", endTime.c_str());
+    OutputDebugStringW(logMessage);
+    swprintf_s(logMessage, L"Total pause duration: %d days (100 years using 365.25 formula)\n", maxDays);
+    OutputDebugStringW(logMessage);
+
+    // Встановлюємо параметри реєстру з детальним логуванням
     bool success = true;
-    success &= SetRegString(L"PauseUpdatesExpiryTime", endTime);
-    success &= SetRegString(L"PauseFeatureUpdatesEndTime", endTime);
-    success &= SetRegString(L"PauseQualityUpdatesEndTime", endTime);
-    success &= SetRegString(L"PauseFeatureUpdatesStartTime", startTime);
-    success &= SetRegString(L"PauseQualityUpdatesStartTime", startTime);
+
+    // Основні параметри паузи оновлень
+    if (!SetRegString(L"PauseUpdatesExpiryTime", endTime)) {
+        OutputDebugStringW(L"Error: Failed to set PauseUpdatesExpiryTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PauseUpdatesExpiryTime\n");
+    }
+
+    if (!SetRegString(L"PauseFeatureUpdatesEndTime", endTime)) {
+        OutputDebugStringW(L"Error: Failed to set PauseFeatureUpdatesEndTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PauseFeatureUpdatesEndTime\n");
+    }
+
+    if (!SetRegString(L"PauseQualityUpdatesEndTime", endTime)) {
+        OutputDebugStringW(L"Error: Failed to set PauseQualityUpdatesEndTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PauseQualityUpdatesEndTime\n");
+    }
+
+    if (!SetRegString(L"PauseFeatureUpdatesStartTime", startTime)) {
+        OutputDebugStringW(L"Error: Failed to set PauseFeatureUpdatesStartTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PauseFeatureUpdatesStartTime\n");
+    }
+
+    if (!SetRegString(L"PauseQualityUpdatesStartTime", startTime)) {
+        OutputDebugStringW(L"Error: Failed to set PauseQualityUpdatesStartTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PauseQualityUpdatesStartTime\n");
+    }
+
+    // Підсумковий звіт
+    if (success) {
+        OutputDebugStringW(L"✅ Windows Updates successfully paused for 100 years!\n");
+    }
+    else {
+        OutputDebugStringW(L"⚠️ Windows Update pause completed with some warnings. Check administrator privileges.\n");
+    }
 
     return success;
 }
 
 bool RemovePause() {
+    OutputDebugStringW(L"Starting Windows Update resume...\n");
+
     bool success = true;
-    success &= DeleteRegValue(L"PauseUpdatesExpiryTime");
-    success &= DeleteRegValue(L"PauseFeatureUpdatesEndTime");
-    success &= DeleteRegValue(L"PauseQualityUpdatesEndTime");
-    success &= DeleteRegValue(L"PauseFeatureUpdatesStartTime");
-    success &= DeleteRegValue(L"PauseQualityUpdatesStartTime");
+
+    if (!DeleteRegValue(L"PauseUpdatesExpiryTime")) {
+        OutputDebugStringW(L"Warning: Failed to delete PauseUpdatesExpiryTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully deleted PauseUpdatesExpiryTime\n");
+    }
+
+    if (!DeleteRegValue(L"PauseFeatureUpdatesEndTime")) {
+        OutputDebugStringW(L"Warning: Failed to delete PauseFeatureUpdatesEndTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully deleted PauseFeatureUpdatesEndTime\n");
+    }
+
+    if (!DeleteRegValue(L"PauseQualityUpdatesEndTime")) {
+        OutputDebugStringW(L"Warning: Failed to delete PauseQualityUpdatesEndTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully deleted PauseQualityUpdatesEndTime\n");
+    }
+
+    if (!DeleteRegValue(L"PauseFeatureUpdatesStartTime")) {
+        OutputDebugStringW(L"Warning: Failed to delete PauseFeatureUpdatesStartTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully deleted PauseFeatureUpdatesStartTime\n");
+    }
+
+    if (!DeleteRegValue(L"PauseQualityUpdatesStartTime")) {
+        OutputDebugStringW(L"Warning: Failed to delete PauseQualityUpdatesStartTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully deleted PauseQualityUpdatesStartTime\n");
+    }
+
+    HKEY hSettingsKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+        0, KEY_SET_VALUE, &hSettingsKey) == ERROR_SUCCESS) {
+
+        RegDeleteValueW(hSettingsKey, L"FlightSettingsMaxPauseDays");
+        RegCloseKey(hSettingsKey);
+        OutputDebugStringW(L"Successfully cleared FlightSettingsMaxPauseDays\n");
+    }
+
+    if (success) {
+        OutputDebugStringW(L"✅ Windows Updates successfully resumed!\n");
+    }
+    else {
+        OutputDebugStringW(L"⚠️ Windows Update resume completed with some warnings\n");
+    }
 
     return success;
 }
@@ -283,7 +462,7 @@ void TogglePause() {
     else {
         // Pause updates
         if (ApplyPause() && IsPaused()) {
-            g_app.statusMessage = L"✅ Updates paused until year 4750";
+            g_app.statusMessage = L"✅ Updates stopped for 100 years";
             PlaySystemSound(true);
             OpenWindowsUpdateSettings();
         }
@@ -352,70 +531,161 @@ void InitializeDoubleBuffering(HWND hWnd) {
 // DRAWING FUNCTIONS
 // ==================================================================
 
-void DrawCard(HDC hdc, const RECT& rect, bool withShadow = true)
+// round-corner helper
+inline HRGN CreateRoundRectRgnForRect(const RECT& r, int radius)
 {
+    return CreateRoundRectRgn(
+        r.left, r.top,
+        r.right + 1, r.bottom + 1,   // +1 бо CreateRoundRectRgn працює «включно»
+        Scale(radius), Scale(radius));
+}
+
+void DrawCard(HDC hdc,
+    const RECT& outer,
+    int inset,
+    int height = -1,   // -1 → автоматична висота
+    bool withShadow = true)
+{
+    // 1. Формуємо inner-rect
+    RECT inner = outer;
+    inner.left += Scale(inset);
+    inner.right -= Scale(inset);
+
+    if (height == -1)
+    {
+        // висота з outer
+        inner.top += Scale(inset);
+        inner.bottom -= Scale(inset);
+    }
+    else
+    {
+        // фіксована висота, центруємо
+        int h = Scale(height);
+        int cy = (outer.bottom - outer.top);
+        inner.top = outer.top + (cy - h) / 2;
+        inner.bottom = inner.top + h;
+    }
+
+    const int RADIUS = 12;
+
+    // 2. Тінь
     if (withShadow)
     {
         constexpr int SHADOW_OFFSET = 3;
-        constexpr int SHADOW_BLUR = 0;
-        RECT shadowRect = rect;
+        RECT shadowRect = inner;
         shadowRect.left += Scale(SHADOW_OFFSET);
         shadowRect.top += Scale(SHADOW_OFFSET);
         shadowRect.right += Scale(SHADOW_OFFSET);
         shadowRect.bottom += Scale(SHADOW_OFFSET);
 
-        HBRUSH shadowBrush = CreateSolidBrush(SHADOW_COLOR);
-        FillRect(hdc, &shadowRect, shadowBrush);
-        DeleteObject(shadowBrush);
+        HRGN shadowRgn = CreateRoundRectRgnForRect(shadowRect, RADIUS);
+        HBRUSH shadowBr = CreateSolidBrush(SHADOW_COLOR);
+        FillRgn(hdc, shadowRgn, shadowBr);
+        DeleteObject(shadowBr);
+        DeleteObject(shadowRgn);
     }
 
-    FillRect(hdc, &rect, g_gdi.hBrushCard);
+    // 3. Фон
+    HRGN rgn = CreateRoundRectRgnForRect(inner, RADIUS);
+    FillRgn(hdc, rgn, g_gdi.hBrushCard);
 
-    HBRUSH borderBrush = CreateSolidBrush(BORDER_COLOR);
-    FrameRect(hdc, &rect, borderBrush);
-    DeleteObject(borderBrush);
+    // 4. Бордер
+    HBRUSH borderBr = CreateSolidBrush(BORDER_COLOR);
+    FrameRgn(hdc, rgn, borderBr, 1, 1);
+    DeleteObject(borderBr);
+    DeleteObject(rgn);
 }
 
-void DrawButton(HDC hdc, const RECT& rect, const wchar_t* text, bool isHovered, bool isPressed) {
-    COLORREF buttonColor;
+void DrawButton(HDC hdc, const RECT& rect, const wchar_t* text,
+    bool isHovered, bool isPressed)
+{
+    const int RADIUS = 15;   // радіус заокруглення (в логічних одиницях)
 
-    if (isPressed) {
-        buttonColor = ACTIVE_COLOR;
-    }
-    else if (isHovered) {
-        buttonColor = g_app.isPaused ? PAUSE_COLOR : RESUME_COLOR;
-    }
-    else {
-        buttonColor = g_app.isPaused ? ACCENT_COLOR : ACCENT_COLOR;
-    }
+    COLORREF clr = isPressed ? ACTIVE_COLOR :
+        isHovered ? (g_app.isPaused ? PAUSE_COLOR : RESUME_COLOR)
+        : ACCENT_COLOR;
 
-    HBRUSH buttonBrush = CreateSolidBrush(buttonColor);
-    FillRect(hdc, &rect, buttonBrush);
-    DeleteObject(buttonBrush);
+    // фон
+    HRGN rgn = CreateRoundRectRgnForRect(rect, RADIUS);
+    HBRUSH br = CreateSolidBrush(clr);
+    FillRgn(hdc, rgn, br);
+    DeleteObject(br);
 
-    // Draw button text
+    // бордер
+    HBRUSH brBorder = CreateSolidBrush(BORDER_COLOR);
+    FrameRgn(hdc, rgn, brBorder, 1, 1);
+    DeleteObject(brBorder);
+    DeleteObject(rgn);
+
+    // текст
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, TEXT_PRIMARY);
     SelectObject(hdc, g_gdi.hFontButton);
-    DrawTextW(hdc, text, -1, const_cast<RECT*>(&rect), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    DrawTextW(hdc, text, -1, const_cast<RECT*>(&rect),
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
-void DrawStatusPanel(HDC hdc, const RECT& rect, bool withShadow = true)
+void DrawStatusPanel(HDC hdc,
+    const RECT& outer,
+    int inset,
+    int height = -1,
+    bool withShadow = true)
 {
-    DrawCard(hdc, rect, withShadow);
+    RECT inner = outer;
+    inner.left += Scale(inset);
+    inner.right -= Scale(inset);
+
+    if (height == -1)
+    {
+        inner.top += Scale(inset);
+        inner.bottom -= Scale(inset);
+    }
+    else
+    {
+        int h = Scale(height);
+        int cy = (outer.bottom - outer.top);
+        inner.top = outer.top + (cy - h) / 2;
+        inner.bottom = inner.top + h;
+    }
+
+    const int RADIUS = 8;
+
+    // тінь
+    if (withShadow)
+    {
+        constexpr int SHADOW_OFFSET = 3;
+        RECT shadowRect = inner;
+        shadowRect.left += Scale(SHADOW_OFFSET);
+        shadowRect.top += Scale(SHADOW_OFFSET);
+        shadowRect.right += Scale(SHADOW_OFFSET);
+        shadowRect.bottom += Scale(SHADOW_OFFSET);
+
+        HRGN shadowRgn = CreateRoundRectRgnForRect(shadowRect, RADIUS);
+        HBRUSH shadowBr = CreateSolidBrush(SHADOW_COLOR);
+        FillRgn(hdc, shadowRgn, shadowBr);
+        DeleteObject(shadowBr);
+        DeleteObject(shadowRgn);
+    }
+
+    HRGN rgn = CreateRoundRectRgnForRect(inner, RADIUS);
+    FillRgn(hdc, rgn, g_gdi.hBrushCard);
+    HBRUSH borderBr = CreateSolidBrush(BORDER_COLOR);
+    FrameRgn(hdc, rgn, borderBr, 1, 1);
+    DeleteObject(borderBr);
+    DeleteObject(rgn);
+
+    // текст
+    COLORREF txt = TEXT_SECONDARY;
+    if (g_app.statusMessage.find(L"✅") != std::wstring::npos)
+        txt = TEXT_SUCCESS;
+    else if (g_app.statusMessage.find(L"❌") != std::wstring::npos)
+        txt = TEXT_ERROR;
 
     SetBkMode(hdc, TRANSPARENT);
-
-    COLORREF textColor = TEXT_SECONDARY;
-    if (g_app.statusMessage.find(L"✅") != std::wstring::npos)
-        textColor = TEXT_SUCCESS;
-    else if (g_app.statusMessage.find(L"❌") != std::wstring::npos)
-        textColor = TEXT_ERROR;
-
-    SetTextColor(hdc, textColor);
+    SetTextColor(hdc, txt);
     SelectObject(hdc, g_gdi.hFontStatus);
     DrawTextW(hdc, g_app.statusMessage.c_str(), -1,
-        const_cast<RECT*>(&rect),
+        const_cast<RECT*>(&inner),
         DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
@@ -437,20 +707,20 @@ void PaintWindow(HWND hWnd)
     // Card
     RECT cardRect = ScaleRect(H_MARGIN, 60,
         WINDOW_WIDTH - H_MARGIN * 2, 130);
-    DrawCard(g_gdi.hMemDC, cardRect);
+    DrawCard(g_gdi.hMemDC, cardRect, 10, 70);
 
     // Button
-    RECT buttonRect = ScaleRect(H_MARGIN + 20, 80,
-        WINDOW_WIDTH - H_MARGIN * 2 - 20, 115);
+    RECT buttonRect = ScaleRect(H_MARGIN + 30, 80,
+        WINDOW_WIDTH - H_MARGIN * 2 - 30, 115);
     const wchar_t* buttonText = g_app.isPaused ? L"▶ Resume Updates"
-        : L"⏸ Pause Until 4750";
+        : L"⏸ Pause for 100 years";
     DrawButton(g_gdi.hMemDC, buttonRect, buttonText,
         g_app.btnHover, g_app.btnPressed);
 
     // Status panel
     RECT statusRect = ScaleRect(H_MARGIN, 145,
         WINDOW_WIDTH - H_MARGIN * 2, 180);
-    DrawStatusPanel(g_gdi.hMemDC, statusRect, true);
+    DrawStatusPanel(g_gdi.hMemDC, statusRect, 10, 35);
 }
 
 // ==================================================================
