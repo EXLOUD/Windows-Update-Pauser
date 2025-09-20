@@ -11,7 +11,7 @@
 ---
 
 <p align="center">
- <img width="450px" src="assets/preview.png" alt="Windows Update Pauser" />
+ <img width="580px" src="assets/preview.gif" alt="Windows Update Pauser" />
 </p>
 
 <h2 align="center">Windows Update Pauser</h2>
