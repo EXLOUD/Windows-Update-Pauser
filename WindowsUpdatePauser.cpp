@@ -12,6 +12,7 @@
 #include <mmsystem.h>
 #include <versionhelpers.h>
 #include <shellscalingapi.h>
+#include <tlhelp32.h>
 #include <string>
 #include <memory>
 #pragma comment(lib, "Shcore.lib")
@@ -151,9 +152,104 @@ void PlaySystemSound(bool success) {
     PlaySoundW(success ? L"SystemDefault" : L"SystemHand",
         nullptr, SND_ALIAS | SND_ASYNC);
 }
+
+// Допоміжна функція для перевірки чи працює процес
+bool IsProcessRunning(const wchar_t* processName) {
+    bool found = false;
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    
+    if (hSnapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W pe32;
+        pe32.dwSize = sizeof(PROCESSENTRY32W);
+        
+        if (Process32FirstW(hSnapshot, &pe32)) {
+            do {
+                if (_wcsicmp(pe32.szExeFile, processName) == 0) {
+                    found = true;
+                    break;
+                }
+            } while (Process32NextW(hSnapshot, &pe32));
+        }
+        CloseHandle(hSnapshot);
+    }
+    
+    return found;
+}
+
+bool TerminateProcessByName(const wchar_t* processName) {
+    bool terminated = false;
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    
+    if (hSnapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W pe32;
+        pe32.dwSize = sizeof(PROCESSENTRY32W);
+        
+        if (Process32FirstW(hSnapshot, &pe32)) {
+            do {
+                if (_wcsicmp(pe32.szExeFile, processName) == 0) {
+                    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe32.th32ProcessID);
+                    if (hProcess != nullptr) {
+                        if (TerminateProcess(hProcess, 0)) {
+                            terminated = true;
+                            wchar_t msg[256];
+                            swprintf_s(msg, L"Terminated %s (PID: %lu)\n", processName, pe32.th32ProcessID);
+                            OutputDebugStringW(msg);
+                        }
+                        CloseHandle(hProcess);
+                    }
+                }
+            } while (Process32NextW(hSnapshot, &pe32));
+        }
+        CloseHandle(hSnapshot);
+    }
+    
+    return terminated;
+}
+
 void OpenWindowsUpdateSettings() {
-    ShellExecuteW(nullptr, L"open", L"ms-settings:windowsupdate",
+    const wchar_t* targetProcess = L"SystemSettings.exe";
+    
+    // Закриваємо SystemSettings якщо він працює
+    if (IsProcessRunning(targetProcess)) {
+        OutputDebugStringW(L"SystemSettings.exe is running, terminating...\n");
+        
+        if (TerminateProcessByName(targetProcess)) {
+            // Чекаємо поки процес закриється
+            const int maxWaitTime = 2000;  // 2 секунди максимум
+            const int checkInterval = 50;  // Перевіряємо кожні 50ms
+            int waited = 0;
+            
+            while (IsProcessRunning(targetProcess) && waited < maxWaitTime) {
+                Sleep(checkInterval);
+                waited += checkInterval;
+            }
+            
+            if (!IsProcessRunning(targetProcess)) {
+                OutputDebugStringW(L"SystemSettings.exe successfully terminated\n");
+            }
+            else {
+                OutputDebugStringW(L"Warning: SystemSettings.exe may still be running\n");
+            }
+        }
+    }
+    else {
+        OutputDebugStringW(L"SystemSettings.exe is not running\n");
+    }
+    
+    // Відкриваємо налаштування Windows Update
+    OutputDebugStringW(L"Opening Windows Update settings...\n");
+    HINSTANCE result = ShellExecuteW(nullptr, L"open", L"ms-settings:windowsupdate",
         nullptr, nullptr, SW_SHOWNORMAL);
+    
+    if (reinterpret_cast<INT_PTR>(result) <= 32) {
+        wchar_t errorMsg[256];
+        swprintf_s(errorMsg, L"Failed to open Windows Update settings (error code: %d)\n", 
+                   reinterpret_cast<INT_PTR>(result));
+        OutputDebugStringW(errorMsg);
+    }
+    else {
+        OutputDebugStringW(L"Successfully opened Windows Update settings\n");
+    }
 }
 // ==================================================================
 // REGISTRY OPERATIONS
@@ -291,6 +387,7 @@ bool ApplyPause() {
     // Set maximum pause days - 100 years
     const DWORD maxDays = 36525; // 100 years
     OutputDebugStringW(L"Starting Windows Update pause for 100 years...\n");
+
     // First, set maximum pause days
     if (!SetMaxPauseDays(maxDays)) {
         OutputDebugStringW(L"Warning: Failed to set FlightSettingsMaxPauseDays\n");
@@ -298,13 +395,16 @@ bool ApplyPause() {
     else {
         OutputDebugStringW(L"Successfully set FlightSettingsMaxPauseDays\n");
     }
+
     // Get current time and calculate end date (100 years ahead)
     const std::wstring startTime = GetCurrentTimeString();
     const std::wstring endTime = CalculateFutureDate100Years();
+
     if (startTime.empty()) {
         OutputDebugStringW(L"Error: Failed to get current time\n");
         return false;
     }
+
     // Log dates
     wchar_t logMessage[512];
     swprintf_s(logMessage, L"Pause start time: %s\n", startTime.c_str());
@@ -313,9 +413,22 @@ bool ApplyPause() {
     OutputDebugStringW(logMessage);
     swprintf_s(logMessage, L"Total pause duration: %d days (100 years using 365.25 formula)\n", maxDays);
     OutputDebugStringW(logMessage);
+
     // Set registry values with detailed logging
     bool success = true;
-    // Core pause parameters
+
+    // ========== ОСНОВНІ ПАРАМЕТРИ ПАУЗИ ==========
+    
+    // PauseUpdatesStartTime
+    if (!SetRegString(L"PauseUpdatesStartTime", startTime)) {
+        OutputDebugStringW(L"Error: Failed to set PauseUpdatesStartTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PauseUpdatesStartTime\n");
+    }
+
+    // PauseUpdatesExpiryTime
     if (!SetRegString(L"PauseUpdatesExpiryTime", endTime)) {
         OutputDebugStringW(L"Error: Failed to set PauseUpdatesExpiryTime\n");
         success = false;
@@ -323,20 +436,8 @@ bool ApplyPause() {
     else {
         OutputDebugStringW(L"Successfully set PauseUpdatesExpiryTime\n");
     }
-    if (!SetRegString(L"PauseFeatureUpdatesEndTime", endTime)) {
-        OutputDebugStringW(L"Error: Failed to set PauseFeatureUpdatesEndTime\n");
-        success = false;
-    }
-    else {
-        OutputDebugStringW(L"Successfully set PauseFeatureUpdatesEndTime\n");
-    }
-    if (!SetRegString(L"PauseQualityUpdatesEndTime", endTime)) {
-        OutputDebugStringW(L"Error: Failed to set PauseQualityUpdatesEndTime\n");
-        success = false;
-    }
-    else {
-        OutputDebugStringW(L"Successfully set PauseQualityUpdatesEndTime\n");
-    }
+
+    // Feature Updates
     if (!SetRegString(L"PauseFeatureUpdatesStartTime", startTime)) {
         OutputDebugStringW(L"Error: Failed to set PauseFeatureUpdatesStartTime\n");
         success = false;
@@ -344,6 +445,16 @@ bool ApplyPause() {
     else {
         OutputDebugStringW(L"Successfully set PauseFeatureUpdatesStartTime\n");
     }
+
+    if (!SetRegString(L"PauseFeatureUpdatesEndTime", endTime)) {
+        OutputDebugStringW(L"Error: Failed to set PauseFeatureUpdatesEndTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PauseFeatureUpdatesEndTime\n");
+    }
+
+    // Quality Updates
     if (!SetRegString(L"PauseQualityUpdatesStartTime", startTime)) {
         OutputDebugStringW(L"Error: Failed to set PauseQualityUpdatesStartTime\n");
         success = false;
@@ -351,8 +462,55 @@ bool ApplyPause() {
     else {
         OutputDebugStringW(L"Successfully set PauseQualityUpdatesStartTime\n");
     }
+
+    if (!SetRegString(L"PauseQualityUpdatesEndTime", endTime)) {
+        OutputDebugStringW(L"Error: Failed to set PauseQualityUpdatesEndTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PauseQualityUpdatesEndTime\n");
+    }
+	
+	    // ========== НОВИЙ КОД: UpdatePolicy Settings ==========
+    const wchar_t* updatePolicyKey = L"SOFTWARE\\Microsoft\\WindowsUpdate\\UpdatePolicy\\Settings";
+    
+    // Встановлюємо статуси паузи
+    if (!SetRegDWORD(updatePolicyKey, L"PausedFeatureStatus", 1)) {
+        OutputDebugStringW(L"Warning: Failed to set PausedFeatureStatus\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PausedFeatureStatus=1\n");
+    }
+    
+    if (!SetRegDWORD(updatePolicyKey, L"PausedQualityStatus", 1)) {
+        OutputDebugStringW(L"Warning: Failed to set PausedQualityStatus\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PausedQualityStatus=1\n");
+    }
+    
+    // Встановлюємо дати паузи
+    if (!SetRegString(updatePolicyKey, L"PausedQualityDate", endTime)) {
+        OutputDebugStringW(L"Warning: Failed to set PausedQualityDate\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PausedQualityDate\n");
+    }
+    
+    if (!SetRegString(updatePolicyKey, L"PausedFeatureDate", endTime)) {
+        OutputDebugStringW(L"Warning: Failed to set PausedFeatureDate\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully set PausedFeatureDate\n");
+    }
+
     // ============ ADDITIONAL SETTINGS TO FULLY DISABLE WINDOWS UPDATE ============
     OutputDebugStringW(L"Applying additional registry tweaks to fully disable Windows Update...\n");
+
     // 1. Disable "Update Health Service"
     if (SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc", L"Start", 4)) {
         OutputDebugStringW(L"✅ uhssvc service disabled (Start=4)\n");
@@ -361,6 +519,16 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to disable uhssvc service\n");
         success = false;
     }
+	
+	// 1.5. Disable "Windows as a Service Medic Service"
+    if (SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc", L"Start", 4)) {
+        OutputDebugStringW(L"✅ WaaSMedicSvc service disabled (Start=4)\n");
+    }
+    else {
+        OutputDebugStringW(L"⚠️ Failed to disable WaaSMedicSvc service\n");
+        success = false;
+    }
+
     // 2. Exclude drivers from quality updates
     if (SetRegDWORD(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", L"ExcludeWUDriversInQualityUpdate", 1)) {
         OutputDebugStringW(L"✅ ExcludeWUDriversInQualityUpdate=1\n");
@@ -369,6 +537,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set ExcludeWUDriversInQualityUpdate\n");
         success = false;
     }
+
     // 3. Disable driver searching via Windows Update
     if (SetRegDWORD(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", L"SearchOrderConfig", 0)) {
         OutputDebugStringW(L"✅ DriverSearching\\SearchOrderConfig=0\n");
@@ -377,6 +546,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set DriverSearching\\SearchOrderConfig\n");
         success = false;
     }
+
     if (SetRegDWORD(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", L"DontSearchWindowsUpdate", 1)) {
         OutputDebugStringW(L"✅ DriverSearching\\DontSearchWindowsUpdate=1\n");
     }
@@ -384,6 +554,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set DriverSearching\\DontSearchWindowsUpdate\n");
         success = false;
     }
+
     // 4. Prevent device metadata from network
     if (SetRegDWORD(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Device Metadata", L"PreventDeviceMetadataFromNetwork", 1)) {
         OutputDebugStringW(L"✅ PreventDeviceMetadataFromNetwork=1\n");
@@ -392,6 +563,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set PreventDeviceMetadataFromNetwork\n");
         success = false;
     }
+
     // 5. Disable driver searching in system
     if (SetRegDWORD(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\DriverSearching", L"SearchOrderConfig", 0)) {
         OutputDebugStringW(L"✅ DriverSearching (CurrentVersion)\\SearchOrderConfig=0\n");
@@ -400,8 +572,10 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set DriverSearching (CurrentVersion)\\SearchOrderConfig\n");
         success = false;
     }
+
     // 6. Windows Update Policies — disable access, servers, OS upgrades, etc.
     const wchar_t* wuPolicyKey = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate";
+    
     if (SetRegString(wuPolicyKey, L"WUServer", L" ")) {
         OutputDebugStringW(L"✅ WUServer=\" \"\n");
     }
@@ -409,6 +583,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set WUServer\n");
         success = false;
     }
+
     if (SetRegString(wuPolicyKey, L"WUStatusServer", L" ")) {
         OutputDebugStringW(L"✅ WUStatusServer=\" \"\n");
     }
@@ -416,6 +591,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set WUStatusServer\n");
         success = false;
     }
+
     if (SetRegString(wuPolicyKey, L"UpdateServiceUrlAlternate", L" ")) {
         OutputDebugStringW(L"✅ UpdateServiceUrlAlternate=\" \"\n");
     }
@@ -423,6 +599,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set UpdateServiceUrlAlternate\n");
         success = false;
     }
+
     if (SetRegDWORD(wuPolicyKey, L"DisableWindowsUpdateAccess", 1)) {
         OutputDebugStringW(L"✅ DisableWindowsUpdateAccess=1\n");
     }
@@ -430,6 +607,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set DisableWindowsUpdateAccess\n");
         success = false;
     }
+
     if (SetRegDWORD(wuPolicyKey, L"DisableOSUpgrade", 1)) {
         OutputDebugStringW(L"✅ DisableOSUpgrade=1\n");
     }
@@ -437,6 +615,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set DisableOSUpgrade\n");
         success = false;
     }
+
     if (SetRegDWORD(wuPolicyKey, L"SetDisableUXWUAccess", 1)) {
         OutputDebugStringW(L"✅ SetDisableUXWUAccess=1\n");
     }
@@ -444,6 +623,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set SetDisableUXWUAccess\n");
         success = false;
     }
+
     if (SetRegDWORD(wuPolicyKey, L"ExcludeWUDriversInQualityUpdate", 1)) {
         OutputDebugStringW(L"✅ WindowsUpdate\\ExcludeWUDriversInQualityUpdate=1\n");
     }
@@ -451,6 +631,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set WindowsUpdate\\ExcludeWUDriversInQualityUpdate\n");
         success = false;
     }
+
     if (SetRegDWORD(wuPolicyKey, L"DoNotConnectToWindowsUpdateInternetLocations", 1)) {
         OutputDebugStringW(L"✅ DoNotConnectToWindowsUpdateInternetLocations=1\n");
     }
@@ -458,8 +639,10 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set DoNotConnectToWindowsUpdateInternetLocations\n");
         success = false;
     }
+
     // 7. AutoUpdate policies
     const wchar_t* auKey = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU";
+    
     if (SetRegDWORD(auKey, L"NoAutoUpdate", 1)) {
         OutputDebugStringW(L"✅ AU\\NoAutoUpdate=1\n");
     }
@@ -467,6 +650,7 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set AU\\NoAutoUpdate\n");
         success = false;
     }
+
     if (SetRegDWORD(auKey, L"UseWUServer", 1)) {
         OutputDebugStringW(L"✅ AU\\UseWUServer=1\n");
     }
@@ -474,20 +658,31 @@ bool ApplyPause() {
         OutputDebugStringW(L"⚠️ Failed to set AU\\UseWUServer\n");
         success = false;
     }
+
     OutputDebugStringW(L"✅ Additional registry tweaks applied successfully.\n");
+
     // Final report
     if (success) {
         OutputDebugStringW(L"✅ Windows Updates successfully paused for 100 years with full lockdown!\n");
+        OutputDebugStringW(L"✅ Active hours set from 13:00 to 07:00\n");
     }
     else {
         OutputDebugStringW(L"⚠️ Windows Update pause completed with some warnings. Check administrator privileges.\n");
     }
+
     return success;
 }
 bool RemovePause() {
     OutputDebugStringW(L"Starting Windows Update resume...\n");
     bool success = true;
-    // Delete core pause values
+	// Delete core pause values
+	if (!DeleteRegValue(L"PauseUpdatesStartTime")) {
+        OutputDebugStringW(L"Warning: Failed to delete PauseUpdatesStartTime\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully deleted PauseUpdatesStartTime\n");
+    }
     if (!DeleteRegValue(L"PauseUpdatesExpiryTime")) {
         OutputDebugStringW(L"Warning: Failed to delete PauseUpdatesExpiryTime\n");
         success = false;
@@ -523,6 +718,44 @@ bool RemovePause() {
     else {
         OutputDebugStringW(L"Successfully deleted PauseQualityUpdatesStartTime\n");
     }
+	
+    // ========== НОВИЙ КОД: UpdatePolicy Settings ==========
+    const wchar_t* updatePolicyKey = L"SOFTWARE\\Microsoft\\WindowsUpdate\\UpdatePolicy\\Settings";
+    
+    // Скидаємо статуси паузи на 0
+    if (!SetRegDWORD(updatePolicyKey, L"PausedFeatureStatus", 0)) {
+        OutputDebugStringW(L"Warning: Failed to reset PausedFeatureStatus\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully reset PausedFeatureStatus=0\n");
+    }
+    
+    if (!SetRegDWORD(updatePolicyKey, L"PausedQualityStatus", 0)) {
+        OutputDebugStringW(L"Warning: Failed to reset PausedQualityStatus\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully reset PausedQualityStatus=0\n");
+    }
+    
+    // Видаляємо дати паузи
+    if (!DeleteRegValue(updatePolicyKey, L"PausedQualityDate")) {
+        OutputDebugStringW(L"Warning: Failed to delete PausedQualityDate\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully deleted PausedQualityDate\n");
+    }
+    
+    if (!DeleteRegValue(updatePolicyKey, L"PausedFeatureDate")) {
+        OutputDebugStringW(L"Warning: Failed to delete PausedFeatureDate\n");
+        success = false;
+    }
+    else {
+        OutputDebugStringW(L"Successfully deleted PausedFeatureDate\n");
+    }	
+	
     HKEY hSettingsKey;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
@@ -539,6 +772,14 @@ bool RemovePause() {
     }
     else {
         OutputDebugStringW(L"⚠️ Failed to enable uhssvc service\n");
+        success = false;
+    }
+	// 1.5 Enable "Windows as a Service Medic Service"
+    if (SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc", L"Start", 3)) {
+        OutputDebugStringW(L"✅ WaaSMedicSvc service enabled (Start=3)\n");
+    }
+    else {
+        OutputDebugStringW(L"⚠️ Failed to enable WaaSMedicSvc service\n");
         success = false;
     }
     // 2. Re-include drivers in quality updates
@@ -1041,14 +1282,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         // Виклик ShellExecute з 'runas' для запиту підвищення прав
         SHELLEXECUTEINFOW sei = { sizeof(sei) };
-        sei.lpVerb = L"runas"; // Це ключовий параметр "verb"
+        sei.lpVerb = L"runas";
         sei.lpFile = szPath;
         sei.nShow = SW_NORMAL;
 
         if (!ShellExecuteExW(&sei)) {
             DWORD dwError = GetLastError();
             if (dwError == ERROR_CANCELLED) {
-                // Користувач відмінив запит UAC
                 MessageBoxW(nullptr,
                     L"Administrator privileges are required to run this application.\n"
                     L"The application will now exit.",
@@ -1065,8 +1305,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             return 1;
         }
 
-        // Якщо ShellExecuteEx успішний, він запустив новий екземпляр.
-        // Поточний екземпляр має завершитися.
         return 0;
     }
 
