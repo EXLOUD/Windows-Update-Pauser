@@ -60,12 +60,17 @@ for %%R in (msvcrt ucrt) do (
 
 set ERROR_COUNT=0
 
+REM === Common libraries for Direct2D build ===
+set "COMMON_LIBS=-lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lkernel32 -lole32 -loleaut32 -luuid"
+set "D2D_LIBS=-ld2d1 -ldwrite -lwindowscodecs"
+set "ALL_LIBS=%COMMON_LIBS% %D2D_LIBS%"
+
 REM ========================================================
 REM === Build with MSVCRT runtime ===
 REM ========================================================
 echo.
 echo ========================================================
-echo Building with MSVCRT runtime...
+echo Building with MSVCRT runtime (Direct2D version)...
 echo ========================================================
 
 REM --- x64 ---
@@ -77,13 +82,13 @@ if errorlevel 1 (
     echo ERROR: Failed to compile resources for x64 (msvcrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_MSVCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o msvcrt\x64\WindowsUpdatePauser-x64.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_MSVCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o msvcrt\x64\WindowsUpdatePauser-x64.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_MSVCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o msvcrt\x64\WindowsUpdatePauser-x64.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_MSVCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o msvcrt\x64\WindowsUpdatePauser-x64.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for x64 (msvcrt)
         set /a ERROR_COUNT+=1
     ) else (
-        copy "%MINGW_MSVCRT_ROOT%\bin\libwinpthread-1.dll" "msvcrt\x64\" >nul
+        copy "%MINGW_MSVCRT_ROOT%\bin\libwinpthread-1.dll" "msvcrt\x64\" >nul 2>&1
         echo SUCCESS: msvcrt\x64\WindowsUpdatePauser-x64.exe
     )
 )
@@ -97,13 +102,13 @@ if errorlevel 1 (
     echo ERROR: Failed to compile resources for x86 (msvcrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_MSVCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o msvcrt\x86\WindowsUpdatePauser-x86.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_MSVCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o msvcrt\x86\WindowsUpdatePauser-x86.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_MSVCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o msvcrt\x86\WindowsUpdatePauser-x86.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_MSVCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o msvcrt\x86\WindowsUpdatePauser-x86.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for x86 (msvcrt)
         set /a ERROR_COUNT+=1
     ) else (
-        copy "%MINGW_MSVCRT_ROOT%\bin\libwinpthread-1.dll" "msvcrt\x86\" >nul
+        copy "%MINGW_MSVCRT_ROOT%\bin\libwinpthread-1.dll" "msvcrt\x86\" >nul 2>&1
         echo SUCCESS: msvcrt\x86\WindowsUpdatePauser-x86.exe
     )
 )
@@ -117,13 +122,13 @@ if errorlevel 1 (
     echo ERROR: Failed to compile resources for ARM64 (msvcrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_MSVCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o msvcrt\arm64\WindowsUpdatePauser-arm64.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_MSVCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o msvcrt\arm64\WindowsUpdatePauser-arm64.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_MSVCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o msvcrt\arm64\WindowsUpdatePauser-arm64.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_MSVCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o msvcrt\arm64\WindowsUpdatePauser-arm64.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for ARM64 (msvcrt)
         set /a ERROR_COUNT+=1
     ) else (
-        copy "%MINGW_MSVCRT_ROOT%\bin\libwinpthread-1.dll" "msvcrt\arm64\" >nul
+        copy "%MINGW_MSVCRT_ROOT%\bin\libwinpthread-1.dll" "msvcrt\arm64\" >nul 2>&1
         echo SUCCESS: msvcrt\arm64\WindowsUpdatePauser-arm64.exe
     )
 )
@@ -133,7 +138,7 @@ REM === Build with UCRT runtime ===
 REM ========================================================
 echo.
 echo ========================================================
-echo Building with UCRT runtime...
+echo Building with UCRT runtime (Direct2D version)...
 echo ========================================================
 
 REM --- x64 ---
@@ -145,13 +150,13 @@ if errorlevel 1 (
     echo ERROR: Failed to compile resources for x64 (ucrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_UCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o ucrt\x64\WindowsUpdatePauser-x64.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_UCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o ucrt\x64\WindowsUpdatePauser-x64.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_UCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o ucrt\x64\WindowsUpdatePauser-x64.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_UCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o ucrt\x64\WindowsUpdatePauser-x64.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for x64 (ucrt)
         set /a ERROR_COUNT+=1
     ) else (
-        copy "%MINGW_UCRT_ROOT%\bin\libwinpthread-1.dll" "ucrt\x64\" >nul
+        copy "%MINGW_UCRT_ROOT%\bin\libwinpthread-1.dll" "ucrt\x64\" >nul 2>&1
         echo SUCCESS: ucrt\x64\WindowsUpdatePauser-x64.exe
     )
 )
@@ -165,13 +170,13 @@ if errorlevel 1 (
     echo ERROR: Failed to compile resources for x86 (ucrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_UCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o ucrt\x86\WindowsUpdatePauser-x86.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_UCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o ucrt\x86\WindowsUpdatePauser-x86.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_UCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o ucrt\x86\WindowsUpdatePauser-x86.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_UCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o ucrt\x86\WindowsUpdatePauser-x86.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for x86 (ucrt)
         set /a ERROR_COUNT+=1
     ) else (
-        copy "%MINGW_UCRT_ROOT%\bin\libwinpthread-1.dll" "ucrt\x86\" >nul
+        copy "%MINGW_UCRT_ROOT%\bin\libwinpthread-1.dll" "ucrt\x86\" >nul 2>&1
         echo SUCCESS: ucrt\x86\WindowsUpdatePauser-x86.exe
     )
 )
@@ -185,13 +190,13 @@ if errorlevel 1 (
     echo ERROR: Failed to compile resources for ARM64 (ucrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_UCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o ucrt\arm64\WindowsUpdatePauser-arm64.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_UCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o ucrt\arm64\WindowsUpdatePauser-arm64.exe WUP.cpp WUP.res.o -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore -lshell32 -luser32 -lgdi32 -lkernel32 -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_UCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o ucrt\arm64\WindowsUpdatePauser-arm64.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_UCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o ucrt\arm64\WindowsUpdatePauser-arm64.exe WUP.cpp WUP.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for ARM64 (ucrt)
         set /a ERROR_COUNT+=1
     ) else (
-        copy "%MINGW_UCRT_ROOT%\bin\libwinpthread-1.dll" "ucrt\arm64\" >nul
+        copy "%MINGW_UCRT_ROOT%\bin\libwinpthread-1.dll" "ucrt\arm64\" >nul 2>&1
         echo SUCCESS: ucrt\arm64\WindowsUpdatePauser-arm64.exe
     )
 )
@@ -207,13 +212,13 @@ REM === Completion ===
 echo.
 echo ========================================================
 if %ERROR_COUNT% equ 0 (
-    echo ALL BUILDS COMPLETED SUCCESSFULLY.
+    echo ALL BUILDS COMPLETED SUCCESSFULLY (Direct2D version).
 ) else (
     echo BUILD COMPLETED WITH %ERROR_COUNT% ERROR(S).
 )
 echo ========================================================
 echo.
-echo Final structure:
+echo Final structure (Direct2D build):
 echo.
 echo msvcrt\
 echo    x64\WindowsUpdatePauser-x64.exe + libwinpthread-1.dll
@@ -224,6 +229,9 @@ echo ucrt\
 echo    x64\WindowsUpdatePauser-x64.exe + libwinpthread-1.dll
 echo    x86\WindowsUpdatePauser-x86.exe + libwinpthread-1.dll
 echo    arm64\WindowsUpdatePauser-arm64.exe + libwinpthread-1.dll
+echo.
+echo Note: This build uses Direct2D for modern graphics rendering
+echo       instead of the legacy GDI technology.
 echo.
 
 pause
