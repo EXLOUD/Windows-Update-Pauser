@@ -159,15 +159,6 @@ C:\llvm-mingw-ucrt\bin\x86_64-w64-mingw32-clang++.exe -target x86_64-w64-windows
 
 ---
 
-## 🐛 Fixed in v1.4.0
-
-- **C2102 "lvalue required" Error** — Fixed button hit-testing.  
-- **Missing Icons in x86/ARM64** — Fixed resource compilation.  
-- **Linker Error "undefined symbol: WinMain"** — Switched to WinMain(LPSTR) for MinGW compatibility.  
-- **Registry Lockdown** — Added 15+ keys to fully disable Windows Update services.  
-
----
-
 ## ⚠️ Important Disclaimer
 
 This software modifies the Windows registry to control update behavior. While designed to be safe and reversible, use it at your own risk. The authors are not responsible for any system damage, loss of updates, or security issues.
