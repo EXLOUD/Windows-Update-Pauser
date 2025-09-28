@@ -1,4 +1,15 @@
 <div align="center">
+
+### 👇
+
+  <p>
+    <a href="https://github.com/EXLOUD/Windows-Update-Pauser/releases/tag/v1.4.1">
+      <img src="https://img.shields.io/badge/_  >_Download_This_Program_<_-darkgreen?style=for-the-badge">
+    </a>
+  </p>
+
+
+---
  
 ### 👀 Repository Views
 
@@ -18,7 +29,7 @@
 <p align="center">Modern Windows Update Control Tool for Windows 10/11 — Now with ARM64 & UCRT</p>
 
 <p align="center">
-  <img src="https://custom-icon-badges.demolab.com/badge/Version-v1.4.0-brightgreen?logo=tag&logoColor=white" />
+  <img src="https://custom-icon-badges.demolab.com/badge/Version-v1.4.1-brightgreen?logo=tag&logoColor=white" />
   <a href="https://github.com/EXLOUD/Windows-Update-Pauser/issues"><img alt="Issues" src="https://img.shields.io/github/issues/EXLOUD/Windows-Update-Pauser?color=F48D73" /></a>
   <img src="https://custom-icon-badges.demolab.com/badge/Compiler-LLVM%2021.1.1-5A5CDA?logo=llvm&logoColor=white" />
   <img src="https://custom-icon-badges.demolab.com/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white" />
@@ -35,7 +46,7 @@
 
 Windows Update Pauser is a modern, user-friendly Windows application designed to provide **complete, irreversible control** over Windows Updates. With its intuitive interface, it allows you to pause Windows Updates for **100 years**, or resume them instantly with just one click.
 
-This v1.4.0 release introduces **native ARM64 support**, **UCRT runtime builds**, and a **deep registry lockdown** to fully disable Windows Update services, driver updates, and metadata fetching.
+This v1.4.1 release introduces **native ARM64 support**, **UCRT runtime builds**, and a **deep registry lockdown** to fully disable Windows Update services, driver updates, and metadata fetching.
 
 ---
 
@@ -76,7 +87,7 @@ This v1.4.0 release introduces **native ARM64 support**, **UCRT runtime builds**
 
 #### 4.1.1 Download
 
-Download the latest **v1.4.0** release from [GitHub Releases](https://github.com/EXLOUD/Windows-Update-Pauser/releases).
+Download the latest **v1.4.1** release from [GitHub Releases](https://github.com/EXLOUD/Windows-Update-Pauser/releases).
 
 #### 4.1.2 Installation
 
