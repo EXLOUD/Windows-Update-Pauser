@@ -16,7 +16,7 @@ if not exist "WindowsUpdatePauser.cpp" (
     pause
     exit /b 1
 )
-if not exist "WindowsUpdatePauser.rc" (
+if not exist "Resource.rc" (
     echo ERROR: WindowsUpdatePauser.rc not found in current directory.
     pause
     exit /b 1
@@ -235,4 +235,5 @@ echo       instead of the legacy GDI technology.
 echo.
 
 pause
+
 
