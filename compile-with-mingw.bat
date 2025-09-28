@@ -76,14 +76,14 @@ echo ========================================================
 REM --- x64 ---
 echo.
 echo --- Compiling for x64 (msvcrt) ---
-echo Command: "%BIN_MSVCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
-"%BIN_MSVCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_MSVCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o Resource.rc.o
+"%BIN_MSVCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o Resource.rc.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for x64 (msvcrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_MSVCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o msvcrt\x64\WindowsUpdatePauser-x64.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_MSVCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o msvcrt\x64\WindowsUpdatePauser-x64.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_MSVCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o msvcrt\x64\WindowsUpdatePauser-x64.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_MSVCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o msvcrt\x64\WindowsUpdatePauser-x64.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for x64 (msvcrt)
         set /a ERROR_COUNT+=1
@@ -96,14 +96,14 @@ if errorlevel 1 (
 REM --- x86 ---
 echo.
 echo --- Compiling for x86 (msvcrt) ---
-echo Command: "%BIN_MSVCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
-"%BIN_MSVCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_MSVCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o Resource.rc.o
+"%BIN_MSVCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o Resource.rc.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for x86 (msvcrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_MSVCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o msvcrt\x86\WindowsUpdatePauser-x86.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_MSVCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o msvcrt\x86\WindowsUpdatePauser-x86.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_MSVCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o msvcrt\x86\WindowsUpdatePauser-x86.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_MSVCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o msvcrt\x86\WindowsUpdatePauser-x86.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for x86 (msvcrt)
         set /a ERROR_COUNT+=1
@@ -116,14 +116,14 @@ if errorlevel 1 (
 REM --- ARM64 ---
 echo.
 echo --- Compiling for ARM64 (msvcrt) ---
-echo Command: "%BIN_MSVCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
-"%BIN_MSVCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_MSVCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o Resource.rc.o
+"%BIN_MSVCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o Resource.rc.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for ARM64 (msvcrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_MSVCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o msvcrt\arm64\WindowsUpdatePauser-arm64.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_MSVCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o msvcrt\arm64\WindowsUpdatePauser-arm64.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_MSVCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o msvcrt\arm64\WindowsUpdatePauser-arm64.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_MSVCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o msvcrt\arm64\WindowsUpdatePauser-arm64.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for ARM64 (msvcrt)
         set /a ERROR_COUNT+=1
@@ -144,14 +144,14 @@ echo ========================================================
 REM --- x64 ---
 echo.
 echo --- Compiling for x64 (ucrt) ---
-echo Command: "%BIN_UCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
-"%BIN_UCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_UCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o Resource.rc.o
+"%BIN_UCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o Resource.rc.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for x64 (ucrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_UCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o ucrt\x64\WindowsUpdatePauser-x64.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_UCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o ucrt\x64\WindowsUpdatePauser-x64.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_UCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o ucrt\x64\WindowsUpdatePauser-x64.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_UCRT%\x86_64-w64-mingw32-clang++.exe" -target x86_64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m64 -o ucrt\x64\WindowsUpdatePauser-x64.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for x64 (ucrt)
         set /a ERROR_COUNT+=1
@@ -164,14 +164,14 @@ if errorlevel 1 (
 REM --- x86 ---
 echo.
 echo --- Compiling for x86 (ucrt) ---
-echo Command: "%BIN_UCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
-"%BIN_UCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_UCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o Resource.rc.o
+"%BIN_UCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o Resource.rc.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for x86 (ucrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_UCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o ucrt\x86\WindowsUpdatePauser-x86.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_UCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o ucrt\x86\WindowsUpdatePauser-x86.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_UCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o ucrt\x86\WindowsUpdatePauser-x86.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_UCRT%\i686-w64-mingw32-clang++.exe" -target i686-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -m32 -o ucrt\x86\WindowsUpdatePauser-x86.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for x86 (ucrt)
         set /a ERROR_COUNT+=1
@@ -184,14 +184,14 @@ if errorlevel 1 (
 REM --- ARM64 ---
 echo.
 echo --- Compiling for ARM64 (ucrt) ---
-echo Command: "%BIN_UCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
-"%BIN_UCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_UCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o Resource.rc.o
+"%BIN_UCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o Resource.rc.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for ARM64 (ucrt)
     set /a ERROR_COUNT+=1
 ) else (
-    echo Command: "%BIN_UCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o ucrt\arm64\WindowsUpdatePauser-arm64.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
-    "%BIN_UCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o ucrt\arm64\WindowsUpdatePauser-arm64.exe WindowsUpdatePauser.cpp WindowsUpdatePauser.res.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    echo Command: "%BIN_UCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o ucrt\arm64\WindowsUpdatePauser-arm64.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
+    "%BIN_UCRT%\aarch64-w64-mingw32-clang++.exe" -target aarch64-w64-windows-gnu -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O2 -o ucrt\arm64\WindowsUpdatePauser-arm64.exe WindowsUpdatePauser.cpp Resource.rc.o %ALL_LIBS% -Wl,-subsystem,windows -static-libgcc -static-libstdc++
     if errorlevel 1 (
         echo ERROR: Failed to compile executable for ARM64 (ucrt)
         set /a ERROR_COUNT+=1
@@ -202,10 +202,10 @@ if errorlevel 1 (
 )
 
 REM === Cleanup: Delete temporary object file ===
-if exist "WindowsUpdatePauser.res.o" (
-    del "WindowsUpdatePauser.res.o"
+if exist "Resource.rc.o" (
+    del "Resource.rc.o"
     echo.
-    echo Temporary file WindowsUpdatePauser.res.o deleted.
+    echo Temporary file Resource.rc.o deleted.
 )
 
 REM === Completion ===
@@ -235,6 +235,7 @@ echo       instead of the legacy GDI technology.
 echo.
 
 pause
+
 
 
 
