@@ -17,7 +17,7 @@ if not exist "WindowsUpdatePauser.cpp" (
     exit /b 1
 )
 if not exist "Resource.rc" (
-    echo ERROR: WindowsUpdatePauser.rc not found in current directory.
+    echo ERROR: Resource.rc not found in current directory.
     pause
     exit /b 1
 )
@@ -29,12 +29,12 @@ if not exist "Resource.h" (
 
 REM === Validate required icon files ===
 if not exist "icon.ico" (
-    echo ERROR: icon.ico not found! This file is required by WindowsUpdatePauser.rc.
+    echo ERROR: icon.ico not found! This file is required by Resource.rc.
     pause
     exit /b 1
 )
 if not exist "icon_small.ico" (
-    echo ERROR: icon_small.ico not found! This file is required by WindowsUpdatePauser.rc.
+    echo ERROR: icon_small.ico not found! This file is required by Resource.rc.
     pause
     exit /b 1
 )
@@ -76,8 +76,8 @@ echo ========================================================
 REM --- x64 ---
 echo.
 echo --- Compiling for x64 (msvcrt) ---
-echo Command: "%BIN_MSVCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
-"%BIN_MSVCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_MSVCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+"%BIN_MSVCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for x64 (msvcrt)
     set /a ERROR_COUNT+=1
@@ -96,8 +96,8 @@ if errorlevel 1 (
 REM --- x86 ---
 echo.
 echo --- Compiling for x86 (msvcrt) ---
-echo Command: "%BIN_MSVCRT%\llvm-windres" --target=i686-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
-"%BIN_MSVCRT%\llvm-windres" --target=i686-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_MSVCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+"%BIN_MSVCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for x86 (msvcrt)
     set /a ERROR_COUNT+=1
@@ -116,8 +116,8 @@ if errorlevel 1 (
 REM --- ARM64 ---
 echo.
 echo --- Compiling for ARM64 (msvcrt) ---
-echo Command: "%BIN_MSVCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
-"%BIN_MSVCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_MSVCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+"%BIN_MSVCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for ARM64 (msvcrt)
     set /a ERROR_COUNT+=1
@@ -144,8 +144,8 @@ echo ========================================================
 REM --- x64 ---
 echo.
 echo --- Compiling for x64 (ucrt) ---
-echo Command: "%BIN_UCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
-"%BIN_UCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_UCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+"%BIN_UCRT%\llvm-windres" --target=x86_64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for x64 (ucrt)
     set /a ERROR_COUNT+=1
@@ -164,8 +164,8 @@ if errorlevel 1 (
 REM --- x86 ---
 echo.
 echo --- Compiling for x86 (ucrt) ---
-echo Command: "%BIN_UCRT%\llvm-windres" --target=i686-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
-"%BIN_UCRT%\llvm-windres" --target=i686-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_UCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+"%BIN_UCRT%\llvm-windres" --target=i686-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for x86 (ucrt)
     set /a ERROR_COUNT+=1
@@ -184,8 +184,8 @@ if errorlevel 1 (
 REM --- ARM64 ---
 echo.
 echo --- Compiling for ARM64 (ucrt) ---
-echo Command: "%BIN_UCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
-"%BIN_UCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i WindowsUpdatePauser.rc -o WindowsUpdatePauser.res.o
+echo Command: "%BIN_UCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
+"%BIN_UCRT%\llvm-windres" --target=aarch64-w64-windows-gnu -i Resource.rc -o WindowsUpdatePauser.res.o
 if errorlevel 1 (
     echo ERROR: Failed to compile resources for ARM64 (ucrt)
     set /a ERROR_COUNT+=1
@@ -235,5 +235,6 @@ echo       instead of the legacy GDI technology.
 echo.
 
 pause
+
 
 
