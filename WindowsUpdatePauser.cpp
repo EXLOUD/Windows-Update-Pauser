@@ -1,21 +1,27 @@
 // WindowsUpdatePauser.cpp
-// Target Windows 10 (0x0A00) or later
-#ifndef WINVER
-  #define WINVER 0x0A00
-#endif
+// C++23 Compatible with llvm-mingw (libc++)
 
-#ifndef _WIN32_WINNT
-  #define _WIN32_WINNT 0x0A00
-#endif
+#include <expected>
+#include <format>
+#include <string_view>
+#include <utility>
+#include <memory>
+#include <array>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <cmath>
+#include <tuple>
+#include <source_location>
 
-// Exclude rarely-used stuff from Windows headers
-#ifndef WIN32_LEAN_AND_MEAN
-  #define WIN32_LEAN_AND_MEAN
-#endif
+// Windows SDK
+#define WINVER 0x0A00
+#define _WIN32_WINNT 0x0A00
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 
 #include <windows.h>
 #include <windowsx.h>
-#include "Resource.h"
 #include <winternl.h>
 #include <commctrl.h>
 #include <shellapi.h>
@@ -25,14 +31,13 @@
 #include <versionhelpers.h>
 #include <shellscalingapi.h>
 #include <tlhelp32.h>
-#include <string>
-#include <memory>
-#include <algorithm>
-#include <cmath>
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wincodec.h>
+#include <wrl/client.h>
 
+// #pragma comment працює тільки в MSVC
+#ifdef _MSC_VER
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "windowscodecs.lib")
@@ -42,1016 +47,411 @@
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "version.lib")
-#pragma comment(linker, \
-    "\"/manifestdependency:type='win32' "\
-    "name='Microsoft.Windows.Common-Controls' "\
-    "version='6.0.0.0' "\
-    "processorArchitecture='*' "\
-    "publicKeyToken='6595b64144ccf1df' "\
-    "language='*'\"")
-	
-// ==================================================================
-// SINGLE INSTANCE CONSTANTS
-// ==================================================================
-constexpr wchar_t MUTEX_NAME[] = L"Global\\EXLOUD_WUP_140_SCHAVEL_NO_2025_SingleInstance";
+#endif
 
-// ==================================================================
-// CONSTANTS AND GLOBALS
-// ==================================================================
-constexpr wchar_t CLASS_NAME[] = L"WUP";
-constexpr int WINDOW_WIDTH = 445;
-constexpr int WINDOW_HEIGHT = 210;
+#include "Resource.hpp"
 
-// Layout constants - centered elements
-constexpr float BUTTON_WIDTH = 340.0f;
-constexpr float BUTTON_HEIGHT = 35.0f;
-constexpr float STATUS_WIDTH = 390.0f;
-constexpr float STATUS_HEIGHT = 40.0f;
-constexpr float CARD_WIDTH = 390.0f;
-constexpr float CARD_HEIGHT = 70.0f;
-
-constexpr int TIMER_ID = 1;
-constexpr int TIMER_INTERVAL = 50;
-constexpr int TIMER_ANIMATION_ID = 2;           
-constexpr int TIMER_ANIMATION_INTERVAL = 16;
-constexpr float COLOR_TRANSITION_SPEED = 0.08f;
-
-// Modern color scheme
-namespace Colors {
-    // Базові кольори
-    constexpr D2D1_COLOR_F Background = { 25.0f/255.0f, 25.0f/255.0f, 25.0f/255.0f, 1.0f };      // RGB(25, 25, 25)
-    constexpr D2D1_COLOR_F Card = { 34.0f/255.0f, 34.0f/255.0f, 34.0f/255.0f, 1.0f };           // RGB(34, 34, 34)
-    constexpr D2D1_COLOR_F CardHover = { 44.0f/255.0f, 44.0f/255.0f, 44.0f/255.0f, 1.0f };      // Трохи світліше для ховеру
+namespace win {
+    using Microsoft::WRL::ComPtr;
     
-    // Акцентні кольори
-    constexpr D2D1_COLOR_F Accent = { 0.0f/255.0f, 120.0f/255.0f, 215.0f/255.0f, 1.0f };        // RGB(0, 120, 215)
-    constexpr D2D1_COLOR_F AccentHover = { 16.0f/255.0f, 132.0f/255.0f, 208.0f/255.0f, 1.0f };  // RGB(16, 132, 208)
-    constexpr D2D1_COLOR_F Active = { 0.0f/255.0f, 102.0f/255.0f, 180.0f/255.0f, 1.0f };        // RGB(0, 102, 180)
+    struct HandleDeleter {
+        void operator()(HANDLE h) const noexcept {
+            if (h && h != INVALID_HANDLE_VALUE) {
+                ::CloseHandle(h);
+            }
+        }
+    };
+    using UniqueHandle = std::unique_ptr<std::remove_pointer_t<HANDLE>, HandleDeleter>;
     
-    // Кольори для кнопок
-    constexpr D2D1_COLOR_F Pause = { 255.0f/255.0f, 193.0f/255.0f, 7.0f/255.0f, 1.0f };         // RGB(255, 193, 7)
-    constexpr D2D1_COLOR_F Resume = { 40.0f/255.0f, 167.0f/255.0f, 69.0f/255.0f, 1.0f };        // RGB(40, 167, 69)
-    
-    // Кольори тексту
-    constexpr D2D1_COLOR_F TextPrimary = { 255.0f/255.0f, 255.0f/255.0f, 255.0f/255.0f, 1.0f }; // RGB(255, 255, 255)
-    constexpr D2D1_COLOR_F TextSecondary = { 180.0f/255.0f, 180.0f/255.0f, 180.0f/255.0f, 1.0f }; // RGB(180, 180, 180)
-    constexpr D2D1_COLOR_F TextSuccess = { 16.0f/255.0f, 185.0f/255.0f, 129.0f/255.0f, 1.0f };  // RGB(16, 185, 129)
-    constexpr D2D1_COLOR_F TextError = { 239.0f/255.0f, 68.0f/255.0f, 68.0f/255.0f, 1.0f };      // RGB(239, 68, 68)
-    
-    // Бордери та тіні
-    constexpr D2D1_COLOR_F Border = { 64.0f/255.0f, 64.0f/255.0f, 64.0f/255.0f, 0.5f };         // RGB(64, 64, 64) з прозорістю
-    constexpr D2D1_COLOR_F Shadow = { 8.0f/255.0f, 8.0f/255.0f, 8.0f/255.0f, 0.3f };            // RGB(8, 8, 8) з прозорістю
+    struct RegistryKeyDeleter {
+        void operator()(HKEY h) const noexcept {
+            if (h) ::RegCloseKey(h);
+        }
+    };
+    using UniqueRegistryKey = std::unique_ptr<std::remove_pointer_t<HKEY>, RegistryKeyDeleter>;
 }
 
-// Animation structure
+// Colors - використовуємо aggregate initialization для constexpr
+namespace colors {
+    [[nodiscard]] constexpr D2D1_COLOR_F make(float r, float g, float b, float a = 1.0f) noexcept {
+        return D2D1_COLOR_F{r / 255.0f, g / 255.0f, b / 255.0f, a};
+    }
+    
+    inline constexpr D2D1_COLOR_F Background = make(25, 25, 25);
+    inline constexpr D2D1_COLOR_F Card = make(34, 34, 34);
+    inline constexpr D2D1_COLOR_F CardHover = make(44, 44, 44);
+    inline constexpr D2D1_COLOR_F Accent = make(0, 120, 215);
+    inline constexpr D2D1_COLOR_F AccentHover = make(16, 132, 208);
+    inline constexpr D2D1_COLOR_F Active = make(0, 102, 180);
+    inline constexpr D2D1_COLOR_F Pause = make(255, 193, 7);
+    inline constexpr D2D1_COLOR_F Resume = make(40, 167, 69);
+    inline constexpr D2D1_COLOR_F TextPrimary = make(255, 255, 255);
+    inline constexpr D2D1_COLOR_F TextSecondary = make(180, 180, 180);
+    inline constexpr D2D1_COLOR_F TextSuccess = make(16, 185, 129);
+    inline constexpr D2D1_COLOR_F TextError = make(239, 68, 68);
+    inline constexpr D2D1_COLOR_F Border = make(64, 64, 64, 0.5f);
+    inline constexpr D2D1_COLOR_F Shadow = make(8, 8, 8, 0.3f);
+}
+
 struct ColorAnimation {
-    D2D1_COLOR_F current;
-    D2D1_COLOR_F target;
+    D2D1_COLOR_F current{};
+    D2D1_COLOR_F target{};
     
-    void SetTarget(const D2D1_COLOR_F& color) {
-        target = color;
+    constexpr void set_target(const D2D1_COLOR_F& color) noexcept { target = color; }
+    constexpr void set_current(const D2D1_COLOR_F& color) noexcept { 
+        current = color; 
+        target = color; 
     }
     
-    void SetCurrent(const D2D1_COLOR_F& color) {
-        current = color;
-        target = color;
+    [[nodiscard]] bool update(float speed) noexcept {
+        bool changed = false;
+        auto lerp = [&](float& curr, float targ) {
+            if (std::abs(curr - targ) > 0.001f) {
+                float diff = targ - curr;
+                float t = diff * speed;
+                t = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+                curr += t;
+                changed = true;
+            } else {
+                curr = targ;
+            }
+        };
+        lerp(current.r, target.r);
+        lerp(current.g, target.g);
+        lerp(current.b, target.b);
+        lerp(current.a, target.a);
+        return changed;
     }
-    
-	bool Update(float speed) {
-		bool changed = false;
-		auto lerp = [&](float& curr, float targ) {
-			if (std::abs(curr - targ) > 0.001f) {
-				float diff = targ - curr;
-				float t = diff * speed;
-				// Ease-out cubic: f(t) = 1 - (1 - t)^3
-				t = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
-				curr += t;
-				changed = true;
-			} else {
-				curr = targ;
-			}
-		};
-		lerp(current.r, target.r);
-		lerp(current.g, target.g);
-		lerp(current.b, target.b);
-		lerp(current.a, target.a);
-		return changed;
-	}
 };
 
-// Direct2D Resources
 struct D2DResources {
-    ID2D1Factory* factory = nullptr;
-    ID2D1HwndRenderTarget* renderTarget = nullptr;
-    IDWriteFactory* writeFactory = nullptr;
+    win::ComPtr<ID2D1Factory> factory;
+    win::ComPtr<ID2D1HwndRenderTarget> renderTarget;
+    win::ComPtr<IDWriteFactory> writeFactory;
+    win::ComPtr<IDWriteTextFormat> titleFormat;
+    win::ComPtr<IDWriteTextFormat> buttonFormat;
+    win::ComPtr<IDWriteTextFormat> statusFormat;
+    win::ComPtr<ID2D1SolidColorBrush> solidBrush;
+    win::ComPtr<ID2D1LinearGradientBrush> gradientBrush;
     
-    // Text formats
-    IDWriteTextFormat* titleFormat = nullptr;
-    IDWriteTextFormat* buttonFormat = nullptr;
-    IDWriteTextFormat* statusFormat = nullptr;
-    
-    // Brushes
-    ID2D1SolidColorBrush* solidBrush = nullptr;
-    ID2D1LinearGradientBrush* gradientBrush = nullptr;
-    
-    ~D2DResources() { Release(); }
-    
-    void Release() {
-        if (gradientBrush) { gradientBrush->Release(); gradientBrush = nullptr; }
-        if (solidBrush) { solidBrush->Release(); solidBrush = nullptr; }
-        if (titleFormat) { titleFormat->Release(); titleFormat = nullptr; }
-        if (buttonFormat) { buttonFormat->Release(); buttonFormat = nullptr; }
-        if (statusFormat) { statusFormat->Release(); statusFormat = nullptr; }
-        if (writeFactory) { writeFactory->Release(); writeFactory = nullptr; }
-        if (renderTarget) { renderTarget->Release(); renderTarget = nullptr; }
-        if (factory) { factory->Release(); factory = nullptr; }
+    void release() noexcept {
+        gradientBrush.Reset();
+        solidBrush.Reset();
+        statusFormat.Reset();
+        buttonFormat.Reset();
+        titleFormat.Reset();
+        writeFactory.Reset();
+        renderTarget.Reset();
+        factory.Reset();
     }
-} g_d2d;
+    
+    [[nodiscard]] bool valid() const noexcept {
+        return factory && renderTarget && writeFactory;
+    }
+};
 
-// Application state
 struct AppState {
     HWND hWnd = nullptr;
-    HANDLE hMutex = nullptr;  // Single instance mutex
+    win::UniqueHandle hMutex;
     UINT dpi = 96;
-    float dpiScale = 1.0f;  // DPI scale factor
+    float dpiScale = 1.0f;
     bool isPaused = false;
     bool btnHover = false;
     bool btnPressed = false;
-    bool statusHover = false;      
-    bool statusPressed = false;    
+    bool statusHover = false;
+    bool statusPressed = false;
     ColorAnimation buttonColor;
     ColorAnimation statusColor;
     ColorAnimation cardColor;
     std::wstring statusMessage = L"Ready to manage Windows Update";
-    std::wstring originalStatusMessage = L"";
+    std::wstring originalStatusMessage;
     bool isOperationInProgress = false;
     float animationProgress = 0.0f;
-} g_app;
-
-// ==================================================================
-// DPI-AWARE HELPER FUNCTIONS
-// ==================================================================
-inline float GetDpiScale() {
-    return g_app.dpiScale;
-}
-
-inline int ScaleInt(int value) {
-    return static_cast<int>(value * g_app.dpiScale);
-}
-
-inline float ScaleFloat(float value) {
-    return value * g_app.dpiScale;
-}
-
-// Get centered rect for element (DPI-aware)
-D2D1_RECT_F GetCenteredRect(float centerX, float centerY, float width, float height) {
-    float halfWidth = width / 2.0f;
-    float halfHeight = height / 2.0f;
-    return D2D1::RectF(
-        centerX - halfWidth,
-        centerY - halfHeight,
-        centerX + halfWidth,
-        centerY + halfHeight
-    );
-}
-
-// ==================================================================
-// SINGLE INSTANCE IMPLEMENTATION
-// ==================================================================
-BOOL CALLBACK EnumWindowsCallback(HWND hWnd, LPARAM lParam) {
-    wchar_t className[256];
-    if (GetClassNameW(hWnd, className, 256) > 0) {
-        if (wcscmp(className, CLASS_NAME) == 0) {
-            HWND* pFoundWnd = reinterpret_cast<HWND*>(lParam);
-            *pFoundWnd = hWnd;
-            return FALSE; // Зупиняємо пошук
-        }
-    }
-    return TRUE; // Продовжуємо пошук
-}
-
-HWND FindExistingInstance() {
-    HWND existingWnd = nullptr;
-    EnumWindows(EnumWindowsCallback, reinterpret_cast<LPARAM>(&existingWnd));
-    return existingWnd;
-}
-
-bool CheckSingleInstance() {
-    // Створюємо глобальний mutex
-    g_app.hMutex = CreateMutexW(nullptr, TRUE, MUTEX_NAME);
     
-    if (g_app.hMutex == nullptr) {
-        return false;
-    }
-    
-    // Перевіряємо чи mutex вже існує
-    if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        // Програма вже запущена, шукаємо її вікно
-        HWND existingWnd = FindExistingInstance();
-        
-        // Закриваємо mutex
-        CloseHandle(g_app.hMutex);
-        g_app.hMutex = nullptr;
-        
-        return false; // Не дозволяємо запуск другого екземпляру
-    }
-    
-    return true; // Це перший екземпляр
-}
-
-void ReleaseSingleInstance() {
-    if (g_app.hMutex) {
-        CloseHandle(g_app.hMutex);
-        g_app.hMutex = nullptr;
-    }
-}
-
-// ==================================================================
-// DIRECT2D INITIALIZATION (DPI-AWARE)
-// ==================================================================
-HRESULT InitializeDirect2D(HWND hWnd) {
-    HRESULT hr = S_OK;
-    
-    // Create factory
-    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d.factory);
-    if (FAILED(hr)) return hr;
-    
-    // Create render target
-    RECT rc;
-    GetClientRect(hWnd, &rc);
-    D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
-    
-    // Create render target with default DPI (96)
-    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
-    props.dpiX = 96.0f;
-    props.dpiY = 96.0f;
-    
-    hr = g_d2d.factory->CreateHwndRenderTarget(
-        props,
-        D2D1::HwndRenderTargetProperties(hWnd, size),
-        &g_d2d.renderTarget
-    );
-    if (FAILED(hr)) return hr;
-    
-    g_d2d.renderTarget->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-    
-    // Create DWrite factory
-    hr = DWriteCreateFactory(
-        DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(&g_d2d.writeFactory)
-    );
-    if (FAILED(hr)) return hr;
-    
-    // Create text formats with base sizes (will be scaled during rendering)
-    hr = g_d2d.writeFactory->CreateTextFormat(
-        L"Segoe UI Variable Display",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        22.0f,  // Base size
-        L"en-US",
-        &g_d2d.titleFormat
-    );
-    if (SUCCEEDED(hr)) {
-        g_d2d.titleFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        g_d2d.titleFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-    
-    hr = g_d2d.writeFactory->CreateTextFormat(
-        L"Segoe UI Variable",
-        nullptr,
-        DWRITE_FONT_WEIGHT_MEDIUM,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        15.0f,  // Base size
-        L"en-US",
-        &g_d2d.buttonFormat
-    );
-    if (SUCCEEDED(hr)) {
-        g_d2d.buttonFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        g_d2d.buttonFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-    
-    hr = g_d2d.writeFactory->CreateTextFormat(
-        L"Segoe UI Variable",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        13.0f,  // Base size
-        L"en-US",
-        &g_d2d.statusFormat
-    );
-    if (SUCCEEDED(hr)) {
-        g_d2d.statusFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        g_d2d.statusFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-    
-    // Create brushes
-    hr = g_d2d.renderTarget->CreateSolidColorBrush(
-        Colors::TextPrimary,
-        &g_d2d.solidBrush
-    );
-    
-    // Create gradient brush
-    ID2D1GradientStopCollection* gradientStops = nullptr;
-    D2D1_GRADIENT_STOP stops[2];
-    stops[0].color = D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.8f);
-    stops[0].position = 0.0f;
-    stops[1].color = D2D1::ColorF(0.06f, 0.52f, 0.89f, 0.3f);
-    stops[1].position = 1.0f;
-    
-    hr = g_d2d.renderTarget->CreateGradientStopCollection(
-        stops,
-        2,
-        D2D1_GAMMA_2_2,
-        D2D1_EXTEND_MODE_CLAMP,
-        &gradientStops
-    );
-    
-    if (SUCCEEDED(hr)) {
-        hr = g_d2d.renderTarget->CreateLinearGradientBrush(
-            D2D1::LinearGradientBrushProperties(
-                D2D1::Point2F(0, 0),
-                D2D1::Point2F(100, 100)
-            ),
-            gradientStops,
-            &g_d2d.gradientBrush
-        );
-        gradientStops->Release();
-    }
-    
-    return hr;
-}
-
-void ResizeDirect2D(HWND hWnd) {
-    if (!g_d2d.renderTarget) return;
-    
-    RECT rc;
-    GetClientRect(hWnd, &rc);
-    D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
-    g_d2d.renderTarget->Resize(size);
-}
-
-// ==================================================================
-// DRAWING FUNCTIONS (DPI-AWARE)
-// ==================================================================
-void DrawRoundedCard(const D2D1_RECT_F& rect, float radius, const D2D1_COLOR_F& color, bool withShadow = true) {
-    if (!g_d2d.renderTarget || !g_d2d.solidBrush) return;
-
-    float scaledRadius = radius * g_app.dpiScale;
-
-    if (withShadow) {
-        D2D1_RECT_F shadowRect = rect;
-        float shadowOffset = 2.0f * g_app.dpiScale;
-        shadowRect.left += shadowOffset;
-        shadowRect.top += shadowOffset;
-        shadowRect.right += shadowOffset;
-        shadowRect.bottom += shadowOffset;
-        
-        g_d2d.solidBrush->SetColor(D2D1::ColorF(0, 0, 0, 0.2f));
-        g_d2d.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(shadowRect, scaledRadius + g_app.dpiScale, scaledRadius + g_app.dpiScale),
-            g_d2d.solidBrush
-        );
-    }
-
-    g_d2d.solidBrush->SetColor(color);
-    g_d2d.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(rect, scaledRadius, scaledRadius),
-        g_d2d.solidBrush
-    );
-
-    g_d2d.solidBrush->SetColor(Colors::Border);
-    g_d2d.renderTarget->DrawRoundedRectangle(
-        D2D1::RoundedRect(rect, scaledRadius, scaledRadius),
-        g_d2d.solidBrush,
-        0.5f * g_app.dpiScale
-    );
-}
-
-void DrawModernButton(const D2D1_RECT_F& rect, const wchar_t* text, const D2D1_COLOR_F& color, bool isPressed) {
-    if (!g_d2d.renderTarget || !g_d2d.solidBrush) return;
-
-    const float radius = 12.0f;
-    D2D1_RECT_F buttonRect = rect;
-
-    // Ефект натискання: зменшення на 2%
-    if (isPressed) {
-        float centerX = (rect.left + rect.right) / 2.0f;
-        float centerY = (rect.top + rect.bottom) / 2.0f;
-        float width  = (rect.right - rect.left) * 0.98f;
-        float height = (rect.bottom - rect.top) * 0.98f;
-        buttonRect = D2D1::RectF(
-            centerX - width / 2.0f,
-            centerY - height / 2.0f,
-            centerX + width / 2.0f,
-            centerY + height / 2.0f
-        );
-    }
-
-    // Малюємо фон кнопки
-    DrawRoundedCard(buttonRect, radius, color, !isPressed);
-
-    // Градієнтний оверлей
-    if (g_d2d.gradientBrush) {
-        g_d2d.gradientBrush->SetStartPoint(D2D1::Point2F(buttonRect.left, buttonRect.top));
-        g_d2d.gradientBrush->SetEndPoint(D2D1::Point2F(buttonRect.right, buttonRect.bottom));
-        g_d2d.gradientBrush->SetOpacity(0.3f);
-        g_d2d.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(buttonRect, radius * g_app.dpiScale, radius * g_app.dpiScale),
-            g_d2d.gradientBrush
-        );
-        g_d2d.gradientBrush->SetOpacity(1.0f);
-    }
-
-    // Текст кнопки
-    g_d2d.solidBrush->SetColor(Colors::TextPrimary);
-    g_d2d.renderTarget->DrawText(
-        text,
-        static_cast<UINT32>(wcslen(text)),
-        g_d2d.buttonFormat,
-        buttonRect,
-        g_d2d.solidBrush
-    );
-}
-
-void DrawStatusPanel(const D2D1_RECT_F& rect, const wchar_t* text, const D2D1_COLOR_F& bgColor) {
-    if (!g_d2d.renderTarget || !g_d2d.solidBrush) return;
-
-    const float radius = 8.0f;
-
-    // Фон панелі
-    DrawRoundedCard(rect, radius, bgColor, true);
-
-    // Визначення кольору тексту за емодзі
-    D2D1_COLOR_F textColor = Colors::TextSecondary;
-    if (wcsstr(text, L"✅")) {
-        textColor = Colors::TextSuccess;
-    } else if (wcsstr(text, L"❌")) {
-        textColor = Colors::TextError;
-    } else if (wcsstr(text, L"🔗")) {
-        textColor = Colors::Accent;
-    }
-
-    // Текст статусу
-    g_d2d.solidBrush->SetColor(textColor);
-    g_d2d.renderTarget->DrawText(
-        text,
-        static_cast<UINT32>(wcslen(text)),
-        g_d2d.statusFormat,
-        rect,
-        g_d2d.solidBrush
-    );
-}
-
-D2D1_RECT_F GetScaledCenteredRect(float centerX, float centerY, float width, float height) {
-    return GetCenteredRect(
-        centerX * g_app.dpiScale,
-        centerY * g_app.dpiScale,
-        width * g_app.dpiScale,
-        height * g_app.dpiScale
-    );
-}
-
-void PaintWindow(HWND hWnd) {
-    if (!g_d2d.renderTarget) return;
-
-    g_d2d.renderTarget->BeginDraw();
-    
-    // Apply DPI scaling transform
-    // g_d2d.renderTarget->SetTransform(D2D1::Matrix3x2F::Scale(g_app.dpiScale, g_app.dpiScale));
-
-    // Clear background
-    g_d2d.renderTarget->Clear(D2D1::ColorF(20.0f/255.0f, 20.0f/255.0f, 20.0f/255.0f));
-
-    // Create subtle background gradient
-    static ID2D1LinearGradientBrush* subtleBgGradient = nullptr;
-    if (!subtleBgGradient) {
-        D2D1_GRADIENT_STOP bgStops[2];
-        bgStops[0].color = D2D1::ColorF(20.0f/255.0f, 20.0f/255.0f, 20.0f/255.0f, 1.0f);
-        bgStops[0].position = 0.0f;
-        bgStops[1].color = D2D1::ColorF(30.0f/255.0f, 30.0f/255.0f, 30.0f/255.0f, 1.0f);
-        bgStops[1].position = 1.0f;
-
-        ID2D1GradientStopCollection* bgCollection = nullptr;
-        g_d2d.renderTarget->CreateGradientStopCollection(bgStops, 2, &bgCollection);
-		float scaledHeight = WINDOW_HEIGHT * g_app.dpiScale;
-		g_d2d.renderTarget->CreateLinearGradientBrush(
-			D2D1::LinearGradientBrushProperties(
-				D2D1::Point2F(0, 0),
-				D2D1::Point2F(0, scaledHeight)
-			),
-			bgCollection,
-			&subtleBgGradient
-		);
-        if (bgCollection) bgCollection->Release();
-    }
-
-    if (subtleBgGradient) {
-        float scaledWidth = WINDOW_WIDTH * g_app.dpiScale;
-		float scaledHeight = WINDOW_HEIGHT * g_app.dpiScale;
-		D2D1_RECT_F bgRect = D2D1::RectF(0, 0, scaledWidth, scaledHeight);
-        g_d2d.renderTarget->FillRectangle(bgRect, subtleBgGradient);
-    }
-
-    // Layout calculations (logical coordinates)
-    float centerX = WINDOW_WIDTH / 2.0f;
-
-    // Title
-    D2D1_RECT_F titleRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 35.0f, WINDOW_WIDTH, 30.0f);
-    g_d2d.solidBrush->SetColor(Colors::TextPrimary);
-    const wchar_t* titleText = L"Windows Update Pauser";
-    g_d2d.renderTarget->DrawText(
-        titleText,
-        wcslen(titleText),
-        g_d2d.titleFormat,
-        titleRect,
-        g_d2d.solidBrush
-    );
-
-    // Main card
-    D2D1_RECT_F cardRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 95.0f, CARD_WIDTH, CARD_HEIGHT);
-    DrawRoundedCard(cardRect, 12.0f, g_app.cardColor.current, true);
-
-    // Button
-    D2D1_RECT_F buttonRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 95.0f, BUTTON_WIDTH, BUTTON_HEIGHT);
-    const wchar_t* buttonText;
-	bool isRestartMode = false;
-
-	if (g_app.statusMessage.find(L"Restart required") != std::wstring::npos) {
-		buttonText = L"🔄 Restart Now";
-		isRestartMode = true;
-	} else {
-		buttonText = g_app.isPaused ? L"▶  Resume Updates" : L"⏸  Pause for 100 years";
-	}
-
-    D2D1_RECT_F finalButtonRect = buttonRect;
-	if (g_app.btnPressed) {
-		float newWidth  = (buttonRect.right - buttonRect.left) * 0.98f;
-		float newHeight = (buttonRect.bottom - buttonRect.top) * 0.98f;
-		float centerX = (buttonRect.left + buttonRect.right) / 2.0f;
-		float centerY = (buttonRect.top + buttonRect.bottom) / 2.0f;
-		finalButtonRect = D2D1::RectF(
-			centerX - newWidth / 2.0f,
-			centerY - newHeight / 2.0f,
-			centerX + newWidth / 2.0f,
-			centerY + newHeight / 2.0f
-		);
-	}
-
-    DrawRoundedCard(finalButtonRect, 12.0f, g_app.buttonColor.current, !g_app.btnPressed);
-
-    // Gradient overlay
-    if (g_d2d.gradientBrush) {
-        g_d2d.gradientBrush->SetStartPoint(D2D1::Point2F(finalButtonRect.left, finalButtonRect.top));
-        g_d2d.gradientBrush->SetEndPoint(D2D1::Point2F(finalButtonRect.right, finalButtonRect.bottom));
-        g_d2d.gradientBrush->SetOpacity(0.3f);
-        g_d2d.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(finalButtonRect, 12.0f * g_app.dpiScale, 12.0f * g_app.dpiScale),
-            g_d2d.gradientBrush
-        );
-        g_d2d.gradientBrush->SetOpacity(1.0f);
-    }
-
-    // Button text
-    g_d2d.solidBrush->SetColor(Colors::TextPrimary);
-    g_d2d.renderTarget->DrawText(
-        buttonText,
-        wcslen(buttonText),
-        g_d2d.buttonFormat,
-        finalButtonRect,
-        g_d2d.solidBrush
-    );
-
-    // Status panel
-    D2D1_RECT_F statusRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 160.0f, STATUS_WIDTH, STATUS_HEIGHT);
-    DrawStatusPanel(statusRect, g_app.statusMessage.c_str(), g_app.statusColor.current);
-
-    // End drawing
-    HRESULT hr = g_d2d.renderTarget->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) {
-        g_d2d.Release();
-        InitializeDirect2D(hWnd);
-    }
-}
-
-// ==================================================================
-// HIT TESTING (DPI-AWARE)
-// ==================================================================
-// D2D1_RECT_F GetButtonRect() {
-    // float centerX = WINDOW_WIDTH / 2.0f;
-    // return GetCenteredRect(centerX, 95.0f, BUTTON_WIDTH, BUTTON_HEIGHT);
-// }
-
-// D2D1_RECT_F GetStatusRect() {
-    // float centerX = WINDOW_WIDTH / 2.0f;
-    // return GetCenteredRect(centerX, 160.0f, STATUS_WIDTH, STATUS_HEIGHT);
-// }
-
-bool PointInRect(const D2D1_RECT_F& rect, POINT pt) {
-    return pt.x >= rect.left && pt.x <= rect.right &&
-           pt.y >= rect.top && pt.y <= rect.bottom;
-}
-
-// ==================================================================
-// COLOR UPDATES
-// ==================================================================
-void UpdateButtonTargetColor() {
-    D2D1_COLOR_F targetColor;
-
-    // Режим перезавантаження?
-    if (g_app.statusMessage.find(L"Restart required") != std::wstring::npos) {
-        targetColor = g_app.btnPressed ? 
-            D2D1::ColorF(Colors::Resume.r * 0.8f, Colors::Resume.g * 0.8f, Colors::Resume.b * 0.8f) :
-            Colors::Resume; // зелений — позитивна дія
-    } else {
-        // Стара логіка для Pause/Resume
-        if (g_app.btnPressed) {
-            if (g_app.isPaused) {
-                targetColor = D2D1::ColorF(Colors::Resume.r * 0.8f, Colors::Resume.g * 0.8f, Colors::Resume.b * 0.8f);
-            } else {
-                targetColor = D2D1::ColorF(Colors::Pause.r * 0.8f, Colors::Pause.g * 0.8f, Colors::Pause.b * 0.8f);
-            }
-        } else if (g_app.btnHover) {
-            targetColor = g_app.isPaused ? Colors::Resume : Colors::Pause;
-        } else {
-            targetColor = Colors::Accent;
-        }
-    }
-
-    g_app.buttonColor.SetTarget(targetColor);
-}
-
-void UpdateStatusTargetColor() {
-    D2D1_COLOR_F targetColor = Colors::Card;
-    
-    if (g_app.statusPressed) {
-        targetColor = D2D1::ColorF(
-            Colors::Card.r * 0.85f,
-            Colors::Card.g * 0.85f,
-            Colors::Card.b * 0.85f
-        );
-    } else if (g_app.statusHover) {
-        targetColor = Colors::CardHover;
-    }
-    
-    g_app.statusColor.SetTarget(targetColor);
-}
-
-void UpdateCardTargetColor() {
-    D2D1_COLOR_F targetColor = Colors::Card;
-    
-    if (g_app.btnHover || g_app.btnPressed) {
-        targetColor = Colors::CardHover;
-    }
-    
-    g_app.cardColor.SetTarget(targetColor);
-}
-
-// ==================================================================
-// WINDOWS VERSION DETECTION
-// ==================================================================
-enum class WindowsVersion {
-    Unsupported,
-    Windows10,
-    Windows11
+    AppState() = default;
+    AppState(const AppState&) = delete;
+    AppState& operator=(const AppState&) = delete;
+    AppState(AppState&&) = default;
+    AppState& operator=(AppState&&) = default;
 };
 
-WindowsVersion GetWindowsVersion() {
-    OSVERSIONINFOEX osvi = { sizeof(OSVERSIONINFOEX) };
-    typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
-    HMODULE hMod = GetModuleHandle(L"ntdll.dll");
-    
-    if (hMod) {
-        RtlGetVersionPtr RtlGetVersion = (RtlGetVersionPtr)GetProcAddress(hMod, "RtlGetVersion");
-        if (RtlGetVersion) {
-            NTSTATUS status = RtlGetVersion((PRTL_OSVERSIONINFOW)&osvi);
-            if (status == 0) {
-                if (osvi.dwMajorVersion >= 10) {
-                    if (osvi.dwBuildNumber >= 22000) {
-                        return WindowsVersion::Windows11;
-                    }
-                    return WindowsVersion::Windows10;
-                }
-            }
+inline D2DResources g_d2d;
+inline AppState g_app;
+
+[[nodiscard]] inline float get_dpi_scale() noexcept { return g_app.dpiScale; }
+[[nodiscard]] inline int scale_int(int value) noexcept { 
+    return static_cast<int>(value * g_app.dpiScale); 
+}
+[[nodiscard]] inline float scale_float(float value) noexcept { 
+    return value * g_app.dpiScale; 
+}
+
+[[nodiscard]] inline D2D1_RECT_F get_centered_rect(float cx, float cy, float w, float h) noexcept {
+    return D2D1::RectF(cx - w/2, cy - h/2, cx + w/2, cy + h/2);
+}
+
+[[nodiscard]] inline D2D1_RECT_F get_scaled_rect(float cx, float cy, float w, float h) noexcept {
+    return get_centered_rect(cx * g_app.dpiScale, cy * g_app.dpiScale, 
+                            w * g_app.dpiScale, h * g_app.dpiScale);
+}
+
+// EnumWindows callback - має бути статичною функцією, не lambda!
+struct EnumData { 
+    HWND found = nullptr; 
+    std::wstring_view name; 
+};
+
+static BOOL CALLBACK EnumWindowsCallback(HWND hWnd, LPARAM lParam) noexcept {
+    auto* d = reinterpret_cast<EnumData*>(lParam);
+    std::array<wchar_t, 256> cls{};
+    if (::GetClassNameW(hWnd, cls.data(), static_cast<int>(cls.size())) > 0) {
+        if (std::wstring_view(cls.data()) == d->name) { 
+            d->found = hWnd; 
+            return FALSE; 
         }
     }
+    return TRUE;
+}
+
+[[nodiscard]] HWND find_existing_instance() noexcept {
+    EnumData data;
+    data.name = resources::strings::CLASS_NAME;
+    ::EnumWindows(EnumWindowsCallback, reinterpret_cast<LPARAM>(&data));
+    return data.found;
+}
+
+[[nodiscard]] bool check_single_instance() {
+    g_app.hMutex.reset(::CreateMutexW(nullptr, TRUE, resources::strings::MUTEX_NAME.data()));
+    if (!g_app.hMutex) return false;
     
-    if (IsWindows10OrGreater()) {
-        return WindowsVersion::Windows10;
-    }
-    
-    return WindowsVersion::Unsupported;
-}
-
-inline bool IsWindows10OrLater() {
-    WindowsVersion ver = GetWindowsVersion();
-    return ver == WindowsVersion::Windows10 || ver == WindowsVersion::Windows11;
-}
-
-inline bool IsWindows10Only() {
-    return GetWindowsVersion() == WindowsVersion::Windows10;
-}
-
-inline bool IsWindows11() {
-    return GetWindowsVersion() == WindowsVersion::Windows11;
-}
-
-bool CheckWindowsVersion() {
-    if (!IsWindows10OrLater()) {
-        MessageBoxW(nullptr,
-            L"This application requires Windows 10 or later.\n"
-            L"Your current Windows version is not supported.",
-            L"Unsupported Windows Version",
-            MB_OK | MB_ICONERROR);
+    if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (HWND existing = find_existing_instance()) {
+            ::SetForegroundWindow(existing);
+            ::ShowWindow(existing, SW_RESTORE);
+        }
+        g_app.hMutex.reset();
         return false;
     }
     return true;
 }
 
-// ==================================================================
-// ADMIN PRIVILEGE CHECK
-// ==================================================================
-bool IsRunningAsAdmin() {
-    BOOL isAdmin = FALSE;
+enum class WinVersion : int { Unsupported = 0, Win10 = 10, Win11 = 11 };
+
+[[nodiscard]] WinVersion get_windows_version() noexcept {
+    OSVERSIONINFOEXW osvi{ .dwOSVersionInfoSize = sizeof(osvi) };
+    using RtlGetVersionFunc = NTSTATUS(NTAPI*)(PRTL_OSVERSIONINFOW);
+    
+    if (HMODULE hMod = ::GetModuleHandleW(L"ntdll.dll")) {
+        if (auto RtlGetVersion = reinterpret_cast<RtlGetVersionFunc>(::GetProcAddress(hMod, "RtlGetVersion"))) {
+            if (RtlGetVersion(reinterpret_cast<PRTL_OSVERSIONINFOW>(&osvi)) == 0) {
+                if (osvi.dwMajorVersion >= 10) {
+                    return (osvi.dwBuildNumber >= 22000) ? WinVersion::Win11 : WinVersion::Win10;
+                }
+            }
+        }
+    }
+    return ::IsWindows10OrGreater() ? WinVersion::Win10 : WinVersion::Unsupported;
+}
+
+[[nodiscard]] inline bool is_win10_or_later() noexcept {
+    auto v = get_windows_version();
+    return v == WinVersion::Win10 || v == WinVersion::Win11;
+}
+
+[[nodiscard]] inline bool is_win11() noexcept {
+    return get_windows_version() == WinVersion::Win11;
+}
+
+// Registry functions
+[[nodiscard]] std::expected<std::wstring, LONG> reg_read_string(
+    std::wstring_view keyPath, std::wstring_view valueName) 
+{
+    HKEY raw = nullptr;
+    if (LONG res = ::RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath.data(), 0, KEY_READ, &raw); res != ERROR_SUCCESS) {
+        return std::unexpected(res);
+    }
+    win::UniqueRegistryKey key(raw);
+    
+    std::array<wchar_t, 512> buf{};
+    DWORD size = static_cast<DWORD>(buf.size() * sizeof(wchar_t));
+    DWORD type = 0;
+    
+    LONG res = ::RegQueryValueExW(key.get(), valueName.data(), nullptr, &type,
+                                  reinterpret_cast<BYTE*>(buf.data()), &size);
+    if (res != ERROR_SUCCESS || type != REG_SZ) return std::unexpected(res);
+    return std::wstring(buf.data());
+}
+
+[[nodiscard]] inline std::expected<std::wstring, LONG> reg_read_string(std::wstring_view valueName) {
+    return reg_read_string(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", valueName);
+}
+
+bool reg_write_string(std::wstring_view keyPath, std::wstring_view name, std::wstring_view value) {
+    HKEY raw = nullptr;
+    if (::RegCreateKeyExW(HKEY_LOCAL_MACHINE, keyPath.data(), 0, nullptr,
+        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &raw, nullptr) != ERROR_SUCCESS) return false;
+    win::UniqueRegistryKey key(raw);
+    
+    return ::RegSetValueExW(key.get(), name.data(), 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(value.data()),
+        static_cast<DWORD>((value.length() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+}
+
+bool reg_write_dword(std::wstring_view keyPath, std::wstring_view name, DWORD value) {
+    HKEY raw = nullptr;
+    if (::RegCreateKeyExW(HKEY_LOCAL_MACHINE, keyPath.data(), 0, nullptr,
+        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &raw, nullptr) != ERROR_SUCCESS) return false;
+    win::UniqueRegistryKey key(raw);
+    
+    return ::RegSetValueExW(key.get(), name.data(), 0, REG_DWORD,
+        reinterpret_cast<const BYTE*>(&value), sizeof(DWORD)) == ERROR_SUCCESS;
+}
+
+bool reg_delete_value(std::wstring_view keyPath, std::wstring_view name) {
+    HKEY raw = nullptr;
+    if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath.data(), 0, KEY_SET_VALUE, &raw) != ERROR_SUCCESS) return false;
+    win::UniqueRegistryKey key(raw);
+    LONG res = ::RegDeleteValueW(key.get(), name.data());
+    return res == ERROR_SUCCESS || res == ERROR_FILE_NOT_FOUND;
+}
+
+bool reg_write_binary(std::wstring_view keyPath, std::wstring_view name, 
+                                    const std::vector<BYTE>& data) {
+    HKEY raw = nullptr;
+    if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath.data(), 0, KEY_SET_VALUE, &raw) != ERROR_SUCCESS) return false;
+    win::UniqueRegistryKey key(raw);
+    return ::RegSetValueExW(key.get(), name.data(), 0, REG_BINARY, 
+                           data.data(), static_cast<DWORD>(data.size())) == ERROR_SUCCESS;
+}
+
+// Time utilities
+[[nodiscard]] std::wstring get_current_time_string() {
+    SYSTEMTIME st;
+    ::GetSystemTime(&st);
+    return std::format(L"{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+}
+
+[[nodiscard]] std::wstring calculate_future_date_100_years() {
+    SYSTEMTIME st;
+    ::GetSystemTime(&st);
+    st.wYear += 100;
+    st.wMonth = 12; st.wDay = 31; st.wHour = 16; st.wMinute = 15; st.wSecond = 25;
+    return std::format(L"{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+}
+
+[[nodiscard]] bool is_running_as_admin() noexcept {
+    BOOL admin = FALSE;
+    HANDLE token = nullptr;
+    if (::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        TOKEN_ELEVATION elev{};
+        DWORD size = sizeof(elev);
+        if (::GetTokenInformation(token, TokenElevation, &elev, sizeof(elev), &size)) {
+            admin = elev.TokenIsElevated;
+        }
+        ::CloseHandle(token);
+    }
+    return admin != FALSE;
+}
+
+void show_error_and_exit(std::wstring_view msg) {
+    ::PlaySoundW(L"SystemHand", nullptr, SND_ALIAS | SND_ASYNC);
+    ::MessageBoxW(g_app.hWnd, msg.data(), L"Error", MB_OK | MB_ICONERROR);
+    ::PostQuitMessage(0);
+}
+
+void perform_system_restart() {
+    ::PlaySoundW(L"SystemExclamation", nullptr, SND_ALIAS | SND_ASYNC);
+    
     HANDLE hToken = nullptr;
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
-        TOKEN_ELEVATION elevation;
-        DWORD cbSize = sizeof(TOKEN_ELEVATION);
-        if (GetTokenInformation(hToken, TokenElevation, &elevation, sizeof(elevation), &cbSize)) {
-            isAdmin = elevation.TokenIsElevated;
-        }
-        CloseHandle(hToken);
+    if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+        show_error_and_exit(L"Failed to get process token for restart.");
+        return;
     }
-    return isAdmin != FALSE;
-}
-
-// ==================================================================
-// WINDOW POSITIONING
-// ==================================================================
-void CenterWindowOnMonitor(HWND hWnd) {
-    RECT wr;
-    GetWindowRect(hWnd, &wr);
-    int w = wr.right - wr.left;
-    int h = wr.bottom - wr.top;
-    HMONITOR hMon = MonitorFromWindow(hWnd, MONITOR_DEFAULTTOPRIMARY);
-    MONITORINFO mi = { sizeof(mi) };
-    GetMonitorInfo(hMon, &mi);
-    int cx = mi.rcWork.right - mi.rcWork.left;
-    int cy = mi.rcWork.bottom - mi.rcWork.top;
-    SetWindowPos(hWnd, nullptr, 
-        mi.rcWork.left + (cx - w) / 2, 
-        mi.rcWork.top + (cy - h) / 2, 
-        0, 0,
-        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-}
-
-// ==================================================================
-// SYSTEM INTERACTION
-// ==================================================================
-void ShowErrorAndExit(const wchar_t* errorMsg);
-
-void PlaySystemSound(bool success) {
-    PlaySoundW(success ? L"SystemDefault" : L"SystemHand",
-        nullptr, SND_ALIAS | SND_ASYNC);
-}
-
-bool IsProcessRunning(const wchar_t* processName) {
-    bool found = false;
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    win::UniqueHandle tokenGuard(hToken);
     
-    if (hSnapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32W pe32;
-        pe32.dwSize = sizeof(PROCESSENTRY32W);
-        
-        if (Process32FirstW(hSnapshot, &pe32)) {
-            do {
-                if (_wcsicmp(pe32.szExeFile, processName) == 0) {
-                    found = true;
-                    break;
-                }
-            } while (Process32NextW(hSnapshot, &pe32));
-        }
-        CloseHandle(hSnapshot);
+    TOKEN_PRIVILEGES tkp{};
+    if (!::LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid)) {
+        show_error_and_exit(L"Failed to lookup shutdown privilege.");
+        return;
+    }
+    tkp.PrivilegeCount = 1;
+    tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    
+    if (!::AdjustTokenPrivileges(tokenGuard.get(), FALSE, &tkp, 0, nullptr, 0) ||
+        ::GetLastError() == ERROR_NOT_ALL_ASSIGNED) {
+        show_error_and_exit(L"Failed to enable shutdown privilege.");
+        return;
     }
     
-    return found;
+    if (!::ExitWindowsEx(EWX_REBOOT | EWX_FORCEIFHUNG,
+        SHTDN_REASON_MAJOR_APPLICATION | SHTDN_REASON_MINOR_INSTALLATION | SHTDN_REASON_FLAG_PLANNED)) {
+        show_error_and_exit(std::format(L"Failed to restart (Error: {})", ::GetLastError()));
+    }
 }
 
-bool TerminateProcessByName(const wchar_t* processName) {
+[[nodiscard]] bool is_process_running(std::wstring_view name) {
+    HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return false;
+    win::UniqueHandle guard(snap);
+    
+    PROCESSENTRY32W pe{ .dwSize = sizeof(pe) };
+    if (!::Process32FirstW(snap, &pe)) return false;
+    
+    do {
+        if (_wcsicmp(pe.szExeFile, name.data()) == 0) return true;
+    } while (::Process32NextW(snap, &pe));
+    return false;
+}
+
+bool terminate_process_by_name(std::wstring_view name) {
+    HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return false;
+    win::UniqueHandle guard(snap);
+    
+    PROCESSENTRY32W pe{ .dwSize = sizeof(pe) };
     bool terminated = false;
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     
-    if (hSnapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32W pe32;
-        pe32.dwSize = sizeof(PROCESSENTRY32W);
-        
-        if (Process32FirstW(hSnapshot, &pe32)) {
-            do {
-                if (_wcsicmp(pe32.szExeFile, processName) == 0) {
-                    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe32.th32ProcessID);
-                    if (hProcess != nullptr) {
-                        if (TerminateProcess(hProcess, 0)) {
-                            terminated = true;
-                        }
-                        CloseHandle(hProcess);
-                    }
+    if (::Process32FirstW(snap, &pe)) {
+        do {
+            if (_wcsicmp(pe.szExeFile, name.data()) == 0) {
+                if (HANDLE proc = ::OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID)) {
+                    if (::TerminateProcess(proc, 0)) terminated = true;
+                    ::CloseHandle(proc);
                 }
-            } while (Process32NextW(hSnapshot, &pe32));
-        }
-        CloseHandle(hSnapshot);
+            }
+        } while (::Process32NextW(snap, &pe));
     }
-    
     return terminated;
 }
 
-void OpenWindowsUpdateSettings() {
-    const wchar_t* targetProcess = L"SystemSettings.exe";
-    
-    if (IsProcessRunning(targetProcess)) {
-        TerminateProcessByName(targetProcess);
-        Sleep(100);
+void open_windows_update_settings() {
+    const wchar_t* target = L"SystemSettings.exe";
+    if (is_process_running(target)) {
+        terminate_process_by_name(target);
+        ::Sleep(100);
     }
-    
-    ShellExecuteW(nullptr, L"open", L"ms-settings:windowsupdate",
-        nullptr, nullptr, SW_SHOWNORMAL);
+    ::ShellExecuteW(nullptr, L"open", L"ms-settings:windowsupdate", nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-void ShowAboutDialog(HWND hWnd) {
-    ShellExecuteW(nullptr, L"open", 
-        L"https://github.com/EXLOUD?tab=repositories", 
-        nullptr, nullptr, SW_SHOWNORMAL);
+void show_about_dialog() {
+    ::ShellExecuteW(nullptr, L"open", 
+        L"https://github.com/EXLOUD?tab=repositories", nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-// ==================================================================
-// RequestSystemRestart
-// ==================================================================
-
-void PerformSystemRestart() {
-    PlaySoundW(L"SystemExclamation", nullptr, SND_ALIAS | SND_ASYNC);
-
-    HANDLE hToken;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-        ShowErrorAndExit(L"Failed to get process token for restart.");
-        return;
-    }
-
-    TOKEN_PRIVILEGES tkp;
-    LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
-    tkp.PrivilegeCount = 1;
-    tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-
-    if (!AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0)) {
-        CloseHandle(hToken);
-        ShowErrorAndExit(L"Failed to enable shutdown privilege.");
-        return;
-    }
-
-    if (GetLastError() == ERROR_NOT_ALL_ASSIGNED) {
-        CloseHandle(hToken);
-        ShowErrorAndExit(L"Required privilege not available.");
-        return;
-    }
-
-    // 🔥 НЕГАЙНЕ ПЕРЕЗАВАНТАЖЕННЯ
-    if (!ExitWindowsEx(EWX_REBOOT | EWX_FORCEIFHUNG,
-        SHTDN_REASON_MAJOR_APPLICATION |
-        SHTDN_REASON_MINOR_INSTALLATION |
-        SHTDN_REASON_FLAG_PLANNED)) {
-        DWORD err = GetLastError();
-        wchar_t msg[256];
-        swprintf_s(msg, L"Failed to restart (Error: %lu).", err);
-        ShowErrorAndExit(msg);
-    }
-
-    CloseHandle(hToken);
+[[nodiscard]] bool is_updates_paused() {
+    auto result = reg_read_string(L"PauseUpdatesExpiryTime");
+    return result.has_value() && !result->empty();
 }
 
-void ShowErrorAndExit(const wchar_t* errorMsg) {
-    PlaySoundW(L"SystemHand", nullptr, SND_ALIAS | SND_ASYNC);
-    MessageBoxW(g_app.hWnd, errorMsg, L"Error", MB_OK | MB_ICONERROR);
-    PostQuitMessage(0);
+bool set_disabled_failure_actions(std::wstring_view servicePath) {
+    std::vector<BYTE> actions(44, 0);
+    return reg_write_binary(servicePath, L"FailureActions", actions);
 }
 
-// ==================================================================
-// REGISTRY OPERATIONS
-// ==================================================================
-std::wstring ReadRegString(const wchar_t* keyPath, const wchar_t* valueName) {
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath, 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
-        return L"";
-    }
-    wchar_t buffer[512];
-    DWORD bufferSize = sizeof(buffer);
-    std::wstring result;
-    if (RegQueryValueExW(hKey, valueName, nullptr, nullptr,
-        reinterpret_cast<BYTE*>(buffer), &bufferSize) == ERROR_SUCCESS) {
-        result = buffer;
-    }
-    RegCloseKey(hKey);
-    return result;
-}
-
-std::wstring ReadRegString(const wchar_t* valueName) {
-    return ReadRegString(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", valueName);
-}
-
-bool SetRegString(const wchar_t* keyPath, const wchar_t* valueName, const std::wstring& value) {
-    HKEY hKey;
-    LONG result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, keyPath, 0, nullptr,
-        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &hKey, nullptr);
-    if (result != ERROR_SUCCESS) {
-        return false;
-    }
-    result = RegSetValueExW(hKey, valueName, 0, REG_SZ,
-        reinterpret_cast<const BYTE*>(value.c_str()),
-        static_cast<DWORD>((value.length() + 1) * sizeof(wchar_t)));
-    RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
-}
-
-bool SetRegString(const wchar_t* valueName, const std::wstring& value) {
-    return SetRegString(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", valueName, value);
-}
-
-bool SetRegDWORD(const wchar_t* keyPath, const wchar_t* valueName, DWORD value) {
-    HKEY hKey;
-    LONG result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, keyPath, 0, nullptr,
-        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &hKey, nullptr);
-    if (result != ERROR_SUCCESS) {
-        return false;
-    }
-    result = RegSetValueExW(hKey, valueName, 0, REG_DWORD,
-        reinterpret_cast<const BYTE*>(&value), sizeof(DWORD));
-    RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
-}
-
-bool DeleteRegValue(const wchar_t* keyPath, const wchar_t* valueName) {
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath, 0, KEY_SET_VALUE, &hKey) != ERROR_SUCCESS) {
-        return false;
-    }
-    LONG result = RegDeleteValueW(hKey, valueName);
-    RegCloseKey(hKey);
-    return (result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND);
-}
-
-bool DeleteRegValue(const wchar_t* valueName) {
-    return DeleteRegValue(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", valueName);
-}
-
-bool SetRegBinary(const wchar_t* keyPath, const wchar_t* valueName, const BYTE* data, DWORD dataSize) {
-    HKEY hKey;
-    LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath, 0, KEY_SET_VALUE, &hKey);
-    if (result != ERROR_SUCCESS) {
-        return false;
-    }
-    result = RegSetValueExW(hKey, valueName, 0, REG_BINARY, data, dataSize);
-    RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
-}
-
-// FailureActions для вимкненого стану (всі нулі)
-bool SetDisabledFailureActions(const wchar_t* servicePath) {
-    BYTE disabledFailureActions[44] = {0}; // 44 байти нулів
-    return SetRegBinary(servicePath, L"FailureActions", disabledFailureActions, sizeof(disabledFailureActions));
-}
-
-// FailureActions для DoSvc (увімкнений стан)
-// bool SetDoSvcFailureActions() {
-    // BYTE failureActions[] = {
-        // 0x80, 0x51, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        // 0x14, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        // 0x60, 0xea, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        // 0x60, 0xea, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 0x00, 0x00, 0x00, 0x00
-    // };
-    // return SetRegBinary(L"SYSTEM\\CurrentControlSet\\Services\\DoSvc", 
-                       // L"FailureActions", failureActions, sizeof(failureActions));
-// }
-
-// FailureActions для UsoSvc (увімкнений стан)
-// bool SetUsoSvcFailureActions() {
-    // BYTE failureActions[] = {
-        // 0x80, 0x51, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        // 0x14, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        // 0xe0, 0x93, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
-        // 0xe0, 0x93, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 0x00, 0x00, 0x00, 0x00
-    // };
-    // return SetRegBinary(L"SYSTEM\\CurrentControlSet\\Services\\UsoSvc", 
-                       // L"FailureActions", failureActions, sizeof(failureActions));
-// }
-
-// FailureActions для WaaSMedicSvc (увімкнений стан)
-bool SetWaaSMedicFailureActions() {
-    BYTE failureActions[] = {
+bool set_waasmedic_failure_actions() {
+    std::vector<BYTE> actions = {
         0x84, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
         0x14, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
@@ -1059,633 +459,635 @@ bool SetWaaSMedicFailureActions() {
         0xe0, 0x93, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00
     };
-    return SetRegBinary(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc", 
-                       L"FailureActions", failureActions, sizeof(failureActions));
+    return reg_write_binary(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc", L"FailureActions", actions);
 }
 
-// FailureActions для wuauserv (увімкнений стан)
-// bool SetWuauservFailureActions() {
-    // BYTE failureActions[] = {
-        // 0x80, 0x51, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        // 0x14, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        // 0x60, 0xea, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        // 0xc0, 0xd4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 0x00, 0x00, 0x00, 0x00
-    // };
-    // return SetRegBinary(L"SYSTEM\\CurrentControlSet\\Services\\wuauserv", 
-                       // L"FailureActions", failureActions, sizeof(failureActions));
-// }
-
-// ==================================================================
-// PAUSE/RESUME LOGIC
-// ==================================================================
-bool IsPaused() {
-    return !ReadRegString(L"PauseUpdatesExpiryTime").empty();
-}
-
-std::wstring GetCurrentTimeString() {
-    SYSTEMTIME st;
-    GetSystemTime(&st);
-    wchar_t timeStr[64];
-    swprintf_s(timeStr, L"%04d-%02d-%02dT%02d:%02d:%02dZ",
-        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    return timeStr;
-}
-
-bool SetMaxPauseDays(DWORD maxDays) {
-    return SetRegDWORD(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", 
-        L"FlightSettingsMaxPauseDays", maxDays);
-}
-
-std::wstring CalculateFutureDate100Years() {
-    SYSTEMTIME st;
-    GetSystemTime(&st);
-    st.wYear += 100;
-    st.wMonth = 12;
-    st.wDay = 31;
-    st.wHour = 16;
-    st.wMinute = 15;
-    st.wSecond = 25;
+bool apply_pause() {
+    constexpr DWORD maxDays = 36500;
+    reg_write_dword(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", 
+                   L"FlightSettingsMaxPauseDays", maxDays);
     
-    wchar_t result[32];
-    swprintf_s(result, L"%04d-%02d-%02dT%02d:%02d:%02dZ",
-        st.wYear, st.wMonth, st.wDay,
-        st.wHour, st.wMinute, st.wSecond);
-    return std::wstring(result);
-}
-
-bool ApplyPause() {
-    const DWORD maxDays = 36500; // 100 years
-    SetMaxPauseDays(maxDays);
-    
-    const std::wstring startTime = GetCurrentTimeString();
-    const std::wstring endTime = CalculateFutureDate100Years();
+    auto startTime = get_current_time_string();
+    auto endTime = calculate_future_date_100_years();
     
     bool success = true;
+    const wchar_t* settingsKey = L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings";
+    const wchar_t* policyKey = L"SOFTWARE\\Microsoft\\WindowsUpdate\\UpdatePolicy\\Settings";
     
-    // Set all pause registry values
-    success &= SetRegString(L"PauseUpdatesStartTime", startTime);
-    success &= SetRegString(L"PauseUpdatesExpiryTime", endTime);
-    success &= SetRegString(L"PauseFeatureUpdatesStartTime", startTime);
-    success &= SetRegString(L"PauseFeatureUpdatesEndTime", endTime);
-    success &= SetRegString(L"PauseQualityUpdatesStartTime", startTime);
-    success &= SetRegString(L"PauseQualityUpdatesEndTime", endTime);
+    success &= reg_write_string(settingsKey, L"PauseUpdatesStartTime", startTime);
+    success &= reg_write_string(settingsKey, L"PauseUpdatesExpiryTime", endTime);
+    success &= reg_write_string(settingsKey, L"PauseFeatureUpdatesStartTime", startTime);
+    success &= reg_write_string(settingsKey, L"PauseFeatureUpdatesEndTime", endTime);
+    success &= reg_write_string(settingsKey, L"PauseQualityUpdatesStartTime", startTime);
+    success &= reg_write_string(settingsKey, L"PauseQualityUpdatesEndTime", endTime);
     
-    // UpdatePolicy Settings
-    const wchar_t* updatePolicyKey = L"SOFTWARE\\Microsoft\\WindowsUpdate\\UpdatePolicy\\Settings";
-    success &= SetRegDWORD(updatePolicyKey, L"PausedFeatureStatus", 1);
-    success &= SetRegDWORD(updatePolicyKey, L"PausedQualityStatus", 1);
-    success &= SetRegString(updatePolicyKey, L"PausedQualityDate", endTime);
-    success &= SetRegString(updatePolicyKey, L"PausedFeatureDate", endTime);
+    success &= reg_write_dword(policyKey, L"PausedFeatureStatus", 1);
+    success &= reg_write_dword(policyKey, L"PausedQualityStatus", 1);
+    success &= reg_write_string(policyKey, L"PausedQualityDate", endTime);
+    success &= reg_write_string(policyKey, L"PausedFeatureDate", endTime);
     
-    // Additional settings
-	if (IsWindows10Only()) {
-		SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc", L"Start", 4);
-		SetDisabledFailureActions(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc");
-	}
-
-    SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc", L"Start", 4);
-	SetDisabledFailureActions(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc");
-	
-	// SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\wuauserv", L"Start", 4);
-	// SetDisabledFailureActions(L"SYSTEM\\CurrentControlSet\\Services\\wuauserv");
-	
-	// SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\DoSvc", L"Start", 4);
-    // SetDisabledFailureActions(L"SYSTEM\\CurrentControlSet\\Services\\DoSvc");
-
-    // Вимикаємо службу Update Orchestrator
-    // SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\UsoSvc", L"Start", 4);
-    // SetDisabledFailureActions(L"SYSTEM\\CurrentControlSet\\Services\\UsoSvc");
-	
-    SetRegDWORD(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", L"ExcludeWUDriversInQualityUpdate", 1);
-    SetRegDWORD(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", L"SearchOrderConfig", 0);
-    SetRegDWORD(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", L"DontSearchWindowsUpdate", 1);
-	
-	SetRegDWORD(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Device Metadata", L"PreventDeviceMetadataFromNetwork", 1);
+    if (get_windows_version() == WinVersion::Win10 && !is_win11()) {
+        reg_write_dword(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc", L"Start", 4);
+        set_disabled_failure_actions(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc");
+    }
     
-    // Windows Update Policies
-    const wchar_t* wuPolicyKey = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate";
-    SetRegString(wuPolicyKey, L"WUServer", L" ");
-    SetRegString(wuPolicyKey, L"WUStatusServer", L" ");
-    SetRegString(wuPolicyKey, L"UpdateServiceUrlAlternate", L" ");
-    SetRegDWORD(wuPolicyKey, L"DisableWindowsUpdateAccess", 1);
-    SetRegDWORD(wuPolicyKey, L"DisableOSUpgrade", 1);
-    SetRegDWORD(wuPolicyKey, L"SetDisableUXWUAccess", 1);
-    SetRegDWORD(wuPolicyKey, L"DoNotConnectToWindowsUpdateInternetLocations", 1);
+    reg_write_dword(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc", L"Start", 4);
+    set_disabled_failure_actions(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc");
     
-    // Вимкнути автоматичне завантаження оновлень через лімітні підключення
-    SetRegDWORD(wuPolicyKey, L"AllowAutoWindowsUpdateDownloadOverMeteredNetwork", 0);
+    reg_write_dword(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", 
+                   L"ExcludeWUDriversInQualityUpdate", 1);
+    reg_write_dword(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", 
+                   L"SearchOrderConfig", 0);
+    reg_write_dword(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", 
+                   L"DontSearchWindowsUpdate", 1);
+    reg_write_dword(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Device Metadata", 
+                   L"PreventDeviceMetadataFromNetwork", 1);
     
-    // AutoUpdate policies
+    const wchar_t* wuPolicy = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate";
+    reg_write_string(wuPolicy, L"WUServer", L" ");
+    reg_write_string(wuPolicy, L"WUStatusServer", L" ");
+    reg_write_string(wuPolicy, L"UpdateServiceUrlAlternate", L" ");
+    reg_write_dword(wuPolicy, L"DisableWindowsUpdateAccess", 1);
+    reg_write_dword(wuPolicy, L"DisableOSUpgrade", 1);
+    reg_write_dword(wuPolicy, L"SetDisableUXWUAccess", 1);
+    reg_write_dword(wuPolicy, L"DoNotConnectToWindowsUpdateInternetLocations", 1);
+    reg_write_dword(wuPolicy, L"AllowAutoWindowsUpdateDownloadOverMeteredNetwork", 0);
+    
     const wchar_t* auKey = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU";
-    SetRegDWORD(auKey, L"NoAutoUpdate", 1);
-    SetRegDWORD(auKey, L"UseWUServer", 1);
-	SetRegDWORD(auKey, L"AUOptions", 2);
-	SetRegDWORD(auKey, L"NoAutoRebootWithLoggedOnUsers", 1);
-    SetRegDWORD(auKey, L"AllowMUUpdateService", 0);
+    reg_write_dword(auKey, L"NoAutoUpdate", 1);
+    reg_write_dword(auKey, L"UseWUServer", 1);
+    reg_write_dword(auKey, L"AUOptions", 2);
+    reg_write_dword(auKey, L"NoAutoRebootWithLoggedOnUsers", 1);
+    reg_write_dword(auKey, L"AllowMUUpdateService", 0);
     
     return success;
 }
 
-bool RemovePause() {
+bool remove_pause() {
     bool success = true;
+    const wchar_t* settingsKey = L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings";
+    const wchar_t* policyKey = L"SOFTWARE\\Microsoft\\WindowsUpdate\\UpdatePolicy\\Settings";
     
-    // Delete pause values
-    success &= DeleteRegValue(L"PauseUpdatesStartTime");
-    success &= DeleteRegValue(L"PauseUpdatesExpiryTime");
-    success &= DeleteRegValue(L"PauseFeatureUpdatesEndTime");
-    success &= DeleteRegValue(L"PauseQualityUpdatesEndTime");
-    success &= DeleteRegValue(L"PauseFeatureUpdatesStartTime");
-    success &= DeleteRegValue(L"PauseQualityUpdatesStartTime");
+    success &= reg_delete_value(settingsKey, L"PauseUpdatesStartTime");
+    success &= reg_delete_value(settingsKey, L"PauseUpdatesExpiryTime");
+    success &= reg_delete_value(settingsKey, L"PauseFeatureUpdatesEndTime");
+    success &= reg_delete_value(settingsKey, L"PauseQualityUpdatesEndTime");
+    success &= reg_delete_value(settingsKey, L"PauseFeatureUpdatesStartTime");
+    success &= reg_delete_value(settingsKey, L"PauseQualityUpdatesStartTime");
     
-    // Reset UpdatePolicy Settings
-    const wchar_t* updatePolicyKey = L"SOFTWARE\\Microsoft\\WindowsUpdate\\UpdatePolicy\\Settings";
-    success &= SetRegDWORD(updatePolicyKey, L"PausedFeatureStatus", 0);
-    success &= SetRegDWORD(updatePolicyKey, L"PausedQualityStatus", 0);
-    success &= DeleteRegValue(updatePolicyKey, L"PausedQualityDate");
-    success &= DeleteRegValue(updatePolicyKey, L"PausedFeatureDate");
+    success &= reg_write_dword(policyKey, L"PausedFeatureStatus", 0);
+    success &= reg_write_dword(policyKey, L"PausedQualityStatus", 0);
+    reg_delete_value(policyKey, L"PausedQualityDate");
+    reg_delete_value(policyKey, L"PausedFeatureDate");
     
-    // Restore services
-	if (IsWindows10Only()) {
-		SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc", L"Start", 2);
-		DeleteRegValue(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc", L"FailureActions");
-	}	
-	
-    // SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\wuauserv", L"Start", 3);
-    // SetWuauservFailureActions();
+    if (get_windows_version() == WinVersion::Win10 && !is_win11()) {
+        reg_write_dword(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc", L"Start", 2);
+        reg_delete_value(L"SYSTEM\\CurrentControlSet\\Services\\uhssvc", L"FailureActions");
+    }
     
-    // WaaSMedicSvc - оновлюємо Start на 3 та відновлюємо FailureActions
-    SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc", L"Start", 3);
-    SetWaaSMedicFailureActions();
-
-    // Відновлюємо службу Delivery Optimization
-    // SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\DoSvc", L"Start", 3);
-    // SetDoSvcFailureActions();
-
-    // Відновлюємо службу Update Orchestrator
-    // SetRegDWORD(L"SYSTEM\\CurrentControlSet\\Services\\UsoSvc", L"Start", 2);
-    // SetUsoSvcFailureActions();
-	
-    SetRegDWORD(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", L"ExcludeWUDriversInQualityUpdate", 0);
-    DeleteRegValue(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", L"SearchOrderConfig");
-    DeleteRegValue(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", L"DontSearchWindowsUpdate");
-	
-	DeleteRegValue(L"SOFTWARE\\Policies\\Microsoft\\Windows\\Device Metadata", L"PreventDeviceMetadataFromNetwork");
+    reg_write_dword(L"SYSTEM\\CurrentControlSet\\Services\\WaaSMedicSvc", L"Start", 3);
+    set_waasmedic_failure_actions();
     
-    // Delete policies
-    const wchar_t* wuPolicyKey = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate";
-    DeleteRegValue(wuPolicyKey, L"WUServer");
-    DeleteRegValue(wuPolicyKey, L"WUStatusServer");
-    DeleteRegValue(wuPolicyKey, L"UpdateServiceUrlAlternate");
-    DeleteRegValue(wuPolicyKey, L"DisableWindowsUpdateAccess");
-    DeleteRegValue(wuPolicyKey, L"DisableOSUpgrade");
-    DeleteRegValue(wuPolicyKey, L"SetDisableUXWUAccess");
-    DeleteRegValue(wuPolicyKey, L"DoNotConnectToWindowsUpdateInternetLocations");
-
-    DeleteRegValue(wuPolicyKey, L"AllowAutoWindowsUpdateDownloadOverMeteredNetwork");
+    reg_write_dword(settingsKey, L"ExcludeWUDriversInQualityUpdate", 0);
+    reg_delete_value(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", L"SearchOrderConfig");
+    reg_delete_value(L"SOFTWARE\\Policies\\Microsoft\\Windows\\DriverSearching", L"DontSearchWindowsUpdate");
+    reg_delete_value(L"SOFTWARE\\Policies\\Microsoft\\Windows\\Device Metadata", 
+                    L"PreventDeviceMetadataFromNetwork");
+    
+    const wchar_t* wuPolicy = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate";
+    reg_delete_value(wuPolicy, L"WUServer");
+    reg_delete_value(wuPolicy, L"WUStatusServer");
+    reg_delete_value(wuPolicy, L"UpdateServiceUrlAlternate");
+    reg_delete_value(wuPolicy, L"DisableWindowsUpdateAccess");
+    reg_delete_value(wuPolicy, L"DisableOSUpgrade");
+    reg_delete_value(wuPolicy, L"SetDisableUXWUAccess");
+    reg_delete_value(wuPolicy, L"DoNotConnectToWindowsUpdateInternetLocations");
+    reg_delete_value(wuPolicy, L"AllowAutoWindowsUpdateDownloadOverMeteredNetwork");
     
     const wchar_t* auKey = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU";
-    DeleteRegValue(auKey, L"NoAutoUpdate");
-    DeleteRegValue(auKey, L"UseWUServer");
-	DeleteRegValue(auKey, L"AUOptions");
-	DeleteRegValue(auKey, L"NoAutoRebootWithLoggedOnUsers");
-    DeleteRegValue(auKey, L"AllowMUUpdateService");
-    
-    // Clear max pause days
-    DeleteRegValue(L"SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings", L"FlightSettingsMaxPauseDays");
+    reg_delete_value(auKey, L"NoAutoUpdate");
+    reg_delete_value(auKey, L"UseWUServer");
+    reg_delete_value(auKey, L"AUOptions");
+    reg_delete_value(auKey, L"NoAutoRebootWithLoggedOnUsers");
+    reg_delete_value(auKey, L"AllowMUUpdateService");
+    reg_delete_value(settingsKey, L"FlightSettingsMaxPauseDays");
     
     return success;
 }
 
-void TogglePause() {
+void toggle_pause() {
     if (g_app.isOperationInProgress) return;
     g_app.isOperationInProgress = true;
     g_app.originalStatusMessage.clear();
-
+    
     bool wasPaused = g_app.isPaused;
     bool success = false;
-
-    if (wasPaused) {
-        success = RemovePause() && !IsPaused();
-        if (success) {
-            g_app.statusMessage = L"⚠️ Restart required to resume updates";
-            g_app.isPaused = false;
-            PlaySystemSound(true);
-            // Відкриваємо налаштування
-            OpenWindowsUpdateSettings();
-            // Не перезавантажуємо — чекаємо на натискання кнопки
-        } else {
-            g_app.statusMessage = L"❌ Failed to resume updates";
-            PlaySystemSound(false);
-        }
-    } else {
-        success = ApplyPause() && IsPaused();
-        if (success) {
-            g_app.statusMessage = L"⚠️ Restart required to apply pause";
-            g_app.isPaused = true;
-            PlaySystemSound(true);
-            // Відкриваємо налаштування
-            OpenWindowsUpdateSettings();
-            // Не перезавантажуємо — чекаємо на натискання кнопки
-        } else {
-            g_app.statusMessage = L"❌ Failed to pause updates";
-            PlaySystemSound(false);
-        }
-    }
-
-    g_app.isOperationInProgress = false;
-    InvalidateRect(g_app.hWnd, nullptr, FALSE);
-}
-
-// ==================================================================
-// WINDOW STYLE
-// ==================================================================
-void EnableModernWindowStyle(HWND hWnd) {
-    BOOL darkMode = TRUE;
-    DwmSetWindowAttribute(hWnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkMode, sizeof(darkMode));
     
-#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
-#define DWMWA_WINDOW_CORNER_PREFERENCE 33
-    enum DWM_WINDOW_CORNER_PREFERENCE {
-        DWMWCP_DEFAULT = 0,
-        DWMWCP_DONOTROUND = 1,
-        DWMWCP_ROUND = 2,
-        DWMWCP_ROUNDSMALL = 3
+    if (wasPaused) {
+        success = remove_pause() && !is_updates_paused();
+        g_app.statusMessage = success ? L"⚠️ Restart required to resume updates" : L"❌ Failed to resume updates";
+        g_app.isPaused = !success;
+        if (success) open_windows_update_settings();
+    } else {
+        success = apply_pause() && is_updates_paused();
+        g_app.statusMessage = success ? L"⚠️ Restart required to apply pause" : L"❌ Failed to pause updates";
+        g_app.isPaused = success;
+        if (success) open_windows_update_settings();
+    }
+    
+    ::PlaySoundW(success ? L"SystemDefault" : L"SystemHand", nullptr, SND_ALIAS | SND_ASYNC);
+    g_app.isOperationInProgress = false;
+    ::InvalidateRect(g_app.hWnd, nullptr, FALSE);
+}
+
+HRESULT initialize_direct2d(HWND hWnd) {
+    HRESULT hr = ::D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, 
+                                     g_d2d.factory.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) return hr;
+    
+    RECT rc;
+    ::GetClientRect(hWnd, &rc);
+    D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
+    
+    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
+    props.dpiX = 96.0f; props.dpiY = 96.0f;
+    
+    hr = g_d2d.factory->CreateHwndRenderTarget(props,
+        D2D1::HwndRenderTargetProperties(hWnd, size),
+        g_d2d.renderTarget.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) return hr;
+    
+    g_d2d.renderTarget->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    
+    hr = ::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+        __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(g_d2d.writeFactory.ReleaseAndGetAddressOf()));
+    if (FAILED(hr)) return hr;
+    
+    auto create_format = [&](float size, DWRITE_FONT_WEIGHT weight, win::ComPtr<IDWriteTextFormat>& fmt) {
+        return g_d2d.writeFactory->CreateTextFormat(L"Segoe UI Variable", nullptr, weight,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"en-US", fmt.ReleaseAndGetAddressOf());
     };
-#endif
-    DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
-    DwmSetWindowAttribute(hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+    
+    if (SUCCEEDED(hr = create_format(22.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, g_d2d.titleFormat))) {
+        g_d2d.titleFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        g_d2d.titleFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (SUCCEEDED(hr = create_format(15.0f, DWRITE_FONT_WEIGHT_MEDIUM, g_d2d.buttonFormat))) {
+        g_d2d.buttonFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        g_d2d.buttonFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (SUCCEEDED(hr = create_format(13.0f, DWRITE_FONT_WEIGHT_NORMAL, g_d2d.statusFormat))) {
+        g_d2d.statusFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        g_d2d.statusFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    
+    hr = g_d2d.renderTarget->CreateSolidColorBrush(colors::TextPrimary, 
+                                                   g_d2d.solidBrush.ReleaseAndGetAddressOf());
+    
+    if (SUCCEEDED(hr)) {
+        win::ComPtr<ID2D1GradientStopCollection> stops;
+        std::array<D2D1_GRADIENT_STOP, 2> gs{};
+        gs[0] = {0.0f, D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.8f)};
+        gs[1] = {1.0f, D2D1::ColorF(0.06f, 0.52f, 0.89f, 0.3f)};
+        
+        g_d2d.renderTarget->CreateGradientStopCollection(gs.data(), static_cast<UINT32>(gs.size()),
+            D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, stops.ReleaseAndGetAddressOf());
+        
+        if (stops) {
+            g_d2d.renderTarget->CreateLinearGradientBrush(
+                D2D1::LinearGradientBrushProperties(D2D1::Point2F(0,0), D2D1::Point2F(100,100)),
+                stops.Get(), g_d2d.gradientBrush.ReleaseAndGetAddressOf());
+        }
+    }
+    return hr;
 }
 
-void ApplyDpiTransform() {
+void resize_direct2d(HWND hWnd) {
     if (!g_d2d.renderTarget) return;
-
-    float dpiScale = g_app.dpi / 96.0f;
-    D2D1_MATRIX_3X2_F transform = D2D1::Matrix3x2F::Scale(dpiScale, dpiScale);
-    g_d2d.renderTarget->SetTransform(transform);
+    RECT rc;
+    ::GetClientRect(hWnd, &rc);
+    g_d2d.renderTarget->Resize(D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top));
 }
 
-// ==================================================================
-// WINDOW PROCEDURE
-// ==================================================================
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    switch (message) {
-	case WM_CREATE: {
-		g_app.hWnd = hWnd;
-		g_app.dpi = GetDpiForWindow(hWnd);
-		g_app.isPaused = IsPaused();
+void draw_rounded_card(const D2D1_RECT_F& rect, float radius, 
+                      const D2D1_COLOR_F& color, bool withShadow = true) {
+    if (!g_d2d.renderTarget || !g_d2d.solidBrush) return;
 
-		// Initialize colors
-		g_app.buttonColor.SetCurrent(Colors::Accent);
-		g_app.statusColor.SetCurrent(Colors::Card);
-		g_app.cardColor.SetCurrent(Colors::Card);
-		UpdateButtonTargetColor();
-		UpdateStatusTargetColor();
-		UpdateCardTargetColor();
-		InitializeDirect2D(hWnd);
-		EnableModernWindowStyle(hWnd);
-		SetTimer(hWnd, TIMER_ID, TIMER_INTERVAL, nullptr);
-		SetTimer(hWnd, TIMER_ANIMATION_ID, TIMER_ANIMATION_INTERVAL, nullptr);
-		return 0;
+    float r = radius * g_app.dpiScale;
+    if (withShadow) {
+        auto shadow = rect;
+        float off = 2.0f * g_app.dpiScale;
+        shadow.left += off; shadow.top += off; 
+        shadow.right += off; shadow.bottom += off;
+        g_d2d.solidBrush->SetColor(D2D1::ColorF(0,0,0,0.2f));
+        g_d2d.renderTarget->FillRoundedRectangle(
+            D2D1::RoundedRect(shadow, r + g_app.dpiScale, r + g_app.dpiScale), 
+            g_d2d.solidBrush.Get());
     }
 
+    g_d2d.solidBrush->SetColor(color);
+    g_d2d.renderTarget->FillRoundedRectangle(D2D1::RoundedRect(rect, r, r), g_d2d.solidBrush.Get());
+    g_d2d.solidBrush->SetColor(colors::Border);
+    g_d2d.renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(rect, r, r), 
+        g_d2d.solidBrush.Get(), 0.5f * g_app.dpiScale);
+}
+
+void draw_status_panel(const D2D1_RECT_F& rect, std::wstring_view text, const D2D1_COLOR_F& bg) {
+    if (!g_d2d.renderTarget || !g_d2d.solidBrush) return;
+    draw_rounded_card(rect, 8.0f, bg, true);
+    
+    D2D1_COLOR_F tc = colors::TextSecondary;
+    if (text.find(L"✅") != std::wstring_view::npos) tc = colors::TextSuccess;
+    else if (text.find(L"❌") != std::wstring_view::npos) tc = colors::TextError;
+    else if (text.find(L"🔗") != std::wstring_view::npos) tc = colors::Accent;
+    
+    g_d2d.solidBrush->SetColor(tc);
+    g_d2d.renderTarget->DrawText(text.data(), static_cast<UINT32>(text.length()),
+        g_d2d.statusFormat.Get(), rect, g_d2d.solidBrush.Get());
+}
+
+void update_button_target_color() {
+    D2D1_COLOR_F target;
+    bool restartMode = g_app.statusMessage.find(L"Restart required") != std::wstring::npos;
+    
+    if (restartMode) {
+        target = g_app.btnPressed ? 
+            D2D1::ColorF(colors::Resume.r * 0.8f, colors::Resume.g * 0.8f, colors::Resume.b * 0.8f) :
+            colors::Resume;
+    } else {
+        if (g_app.btnPressed) {
+            target = g_app.isPaused ? 
+                D2D1::ColorF(colors::Resume.r * 0.8f, colors::Resume.g * 0.8f, colors::Resume.b * 0.8f) :
+                D2D1::ColorF(colors::Pause.r * 0.8f, colors::Pause.g * 0.8f, colors::Pause.b * 0.8f);
+        } else if (g_app.btnHover) {
+            target = g_app.isPaused ? colors::Resume : colors::Pause;
+        } else {
+            target = colors::Accent;
+        }
+    }
+    g_app.buttonColor.set_target(target);
+}
+
+void update_status_target_color() {
+    D2D1_COLOR_F target = colors::Card;
+    if (g_app.statusPressed) target = D2D1::ColorF(colors::Card.r * 0.85f, colors::Card.g * 0.85f, colors::Card.b * 0.85f);
+    else if (g_app.statusHover) target = colors::CardHover;
+    g_app.statusColor.set_target(target);
+}
+
+void update_card_target_color() {
+    D2D1_COLOR_F target = colors::Card;
+    if (g_app.btnHover || g_app.btnPressed) target = colors::CardHover;
+    g_app.cardColor.set_target(target);
+}
+
+void paint_window(HWND hWnd) {
+    if (!g_d2d.renderTarget) return;
+    
+    g_d2d.renderTarget->BeginDraw();
+    g_d2d.renderTarget->Clear(D2D1::ColorF(20.0f/255.0f, 20.0f/255.0f, 20.0f/255.0f));
+    
+    static win::ComPtr<ID2D1LinearGradientBrush> bgBrush;
+    if (!bgBrush && g_d2d.renderTarget) {
+        win::ComPtr<ID2D1GradientStopCollection> coll;
+        std::array<D2D1_GRADIENT_STOP, 2> stops{};
+        stops[0] = {0.0f, D2D1::ColorF(20.0f/255.0f, 20.0f/255.0f, 20.0f/255.0f, 1.0f)};
+        stops[1] = {1.0f, D2D1::ColorF(30.0f/255.0f, 30.0f/255.0f, 30.0f/255.0f, 1.0f)};
+        g_d2d.renderTarget->CreateGradientStopCollection(stops.data(), 2, coll.ReleaseAndGetAddressOf());
+        if (coll) {
+            g_d2d.renderTarget->CreateLinearGradientBrush(
+                D2D1::LinearGradientBrushProperties(D2D1::Point2F(0,0), 
+                D2D1::Point2F(0, static_cast<float>(resources::ui::WINDOW_HEIGHT) * g_app.dpiScale)),
+                coll.Get(), bgBrush.ReleaseAndGetAddressOf());
+        }
+    }
+    if (bgBrush) {
+        g_d2d.renderTarget->FillRectangle(
+            D2D1::RectF(0, 0, resources::ui::WINDOW_WIDTH * g_app.dpiScale, 
+                       resources::ui::WINDOW_HEIGHT * g_app.dpiScale), bgBrush.Get());
+    }
+    
+    auto titleRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 35.0f, 
+                                    static_cast<float>(resources::ui::WINDOW_WIDTH), 30.0f);
+    g_d2d.solidBrush->SetColor(colors::TextPrimary);
+    constexpr std::wstring_view title = L"Windows Update Pauser";
+    g_d2d.renderTarget->DrawText(title.data(), static_cast<UINT32>(title.length()),
+        g_d2d.titleFormat.Get(), titleRect, g_d2d.solidBrush.Get());
+    
+    auto cardRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 95.0f, 
+                                   resources::ui::CARD_WIDTH, resources::ui::CARD_HEIGHT);
+    draw_rounded_card(cardRect, 12.0f, g_app.cardColor.current, true);
+    
+    auto btnRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 95.0f, 
+                                  resources::ui::BUTTON_WIDTH, resources::ui::BUTTON_HEIGHT);
+    bool restartMode = g_app.statusMessage.find(L"Restart required") != std::wstring::npos;
+    std::wstring_view btnText = restartMode ? L"🔄 Restart Now" : 
+        (g_app.isPaused ? L"▶  Resume Updates" : L"⏸  Pause for 100 years");
+    
+    auto finalBtnRect = btnRect;
+    if (g_app.btnPressed) {
+        float nw = (btnRect.right - btnRect.left) * 0.98f;
+        float nh = (btnRect.bottom - btnRect.top) * 0.98f;
+        float cx = (btnRect.left + btnRect.right) / 2.0f;
+        float cy = (btnRect.top + btnRect.bottom) / 2.0f;
+        finalBtnRect = D2D1::RectF(cx - nw/2, cy - nh/2, cx + nw/2, cy + nh/2);
+    }
+    
+    draw_rounded_card(finalBtnRect, 12.0f, g_app.buttonColor.current, !g_app.btnPressed);
+    
+    if (g_d2d.gradientBrush) {
+        g_d2d.gradientBrush->SetStartPoint(D2D1::Point2F(finalBtnRect.left, finalBtnRect.top));
+        g_d2d.gradientBrush->SetEndPoint(D2D1::Point2F(finalBtnRect.right, finalBtnRect.bottom));
+        g_d2d.gradientBrush->SetOpacity(0.3f);
+        g_d2d.renderTarget->FillRoundedRectangle(
+            D2D1::RoundedRect(finalBtnRect, 12.0f * g_app.dpiScale, 12.0f * g_app.dpiScale),
+            g_d2d.gradientBrush.Get());
+        g_d2d.gradientBrush->SetOpacity(1.0f);
+    }
+    
+    g_d2d.solidBrush->SetColor(colors::TextPrimary);
+    g_d2d.renderTarget->DrawText(btnText.data(), static_cast<UINT32>(btnText.length()),
+        g_d2d.buttonFormat.Get(), finalBtnRect, g_d2d.solidBrush.Get());
+    
+    auto statusRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 160.0f, 
+                                     resources::ui::STATUS_WIDTH, resources::ui::STATUS_HEIGHT);
+    draw_status_panel(statusRect, g_app.statusMessage, g_app.statusColor.current);
+    
+    HRESULT hr = g_d2d.renderTarget->EndDraw();
+    if (hr == D2DERR_RECREATE_TARGET) {
+        g_d2d.release();
+        (void)initialize_direct2d(hWnd);
+    }
+}
+
+[[nodiscard]] bool point_in_rect(const D2D1_RECT_F& rect, POINT pt) noexcept {
+    return pt.x >= rect.left && pt.x <= rect.right && pt.y >= rect.top && pt.y <= rect.bottom;
+}
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        g_app.hWnd = hWnd;
+        g_app.dpi = ::GetDpiForWindow(hWnd);
+        g_app.dpiScale = static_cast<float>(g_app.dpi) / 96.0f;
+        g_app.isPaused = is_updates_paused();
+        
+        g_app.buttonColor.set_current(colors::Accent);
+        g_app.statusColor.set_current(colors::Card);
+        g_app.cardColor.set_current(colors::Card);
+        update_button_target_color();
+        update_status_target_color();
+        update_card_target_color();
+        
+        (void)initialize_direct2d(hWnd);
+        
+        BOOL dark = TRUE;
+        ::DwmSetWindowAttribute(hWnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+        enum { DWMWCP_ROUND = 2 };
+        int corner = DWMWCP_ROUND;
+        ::DwmSetWindowAttribute(hWnd, 33, &corner, sizeof(corner));
+        
+        ::SetTimer(hWnd, resources::ui::TIMER_ID, resources::ui::TIMER_INTERVAL, nullptr);
+        ::SetTimer(hWnd, resources::ui::TIMER_ANIMATION_ID, resources::ui::TIMER_ANIMATION_INTERVAL, nullptr);
+        return 0;
+    }
+    
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        BeginPaint(hWnd, &ps);
-        PaintWindow(hWnd);
-        EndPaint(hWnd, &ps);
+        ::BeginPaint(hWnd, &ps);
+        paint_window(hWnd);
+        ::EndPaint(hWnd, &ps);
         return 0;
     }
-
-    case WM_ERASEBKGND:
-        return 1;
-
+    
+    case WM_ERASEBKGND: return 1;
+    
     case WM_SIZE:
-        ResizeDirect2D(hWnd);
-        InvalidateRect(hWnd, nullptr, FALSE);
+        resize_direct2d(hWnd);
+        ::InvalidateRect(hWnd, nullptr, FALSE);
         return 0;
-
-	case WM_TIMER:
-		if (wParam == TIMER_ID) {
-			POINT pt;
-			GetCursorPos(&pt);
-			ScreenToClient(hWnd, &pt);
-
-			// Check button hover
-			D2D1_RECT_F buttonRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 95.0f, BUTTON_WIDTH, BUTTON_HEIGHT);
-			bool newHover = PointInRect(buttonRect, pt);
-			if (newHover != g_app.btnHover) {
-				g_app.btnHover = newHover;
-				UpdateButtonTargetColor();
-				UpdateCardTargetColor();
-				InvalidateRect(hWnd, nullptr, FALSE);
-			}
-
-			// Check status hover
-			D2D1_RECT_F statusRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 160.0f, STATUS_WIDTH, STATUS_HEIGHT);
-			bool newStatusHover = PointInRect(statusRect, pt);
-			if (newStatusHover != g_app.statusHover) {
-				g_app.statusHover = newStatusHover;
-				UpdateStatusTargetColor();
-
-				// Перевіряємо, чи зараз не активний стан "Restart required"
-				bool isRestartMode = (g_app.statusMessage.find(L"Restart required") != std::wstring::npos);
-
-				if (g_app.statusHover && !isRestartMode) {
-					// Зберігаємо оригінальний статус лише якщо не в режимі перезавантаження
-					if (g_app.originalStatusMessage.empty()) {
-						g_app.originalStatusMessage = g_app.statusMessage;
-					}
-					g_app.statusMessage = L"🔗 Open author's GitHub repositories";
-				} else if (!g_app.statusHover) {
-					// Повертаємо оригінальний статус, якщо не в режимі перезавантаження
-					if (!g_app.originalStatusMessage.empty() && !isRestartMode) {
-						g_app.statusMessage = g_app.originalStatusMessage;
-						g_app.originalStatusMessage.clear();
-					}
-					// Якщо в режимі перезавантаження — нічого не робимо, статус залишається "⚠️ Restart required..."
-				}
-				InvalidateRect(hWnd, nullptr, FALSE);
-			}
-		}
-        else if (wParam == TIMER_ANIMATION_ID) {
-            bool needsRedraw = false;
-            needsRedraw |= g_app.buttonColor.Update(COLOR_TRANSITION_SPEED);
-            needsRedraw |= g_app.statusColor.Update(COLOR_TRANSITION_SPEED);
-            needsRedraw |= g_app.cardColor.Update(COLOR_TRANSITION_SPEED);
+    
+    case WM_TIMER:
+        if (wParam == resources::ui::TIMER_ID) {
+            POINT pt;
+            ::GetCursorPos(&pt);
+            ::ScreenToClient(hWnd, &pt);
             
-            if (needsRedraw) {
-                InvalidateRect(hWnd, nullptr, FALSE);
+            auto btnRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 95.0f, 
+                                          resources::ui::BUTTON_WIDTH, resources::ui::BUTTON_HEIGHT);
+            bool newHover = point_in_rect(btnRect, pt);
+            if (newHover != g_app.btnHover) {
+                g_app.btnHover = newHover;
+                update_button_target_color();
+                update_card_target_color();
+                ::InvalidateRect(hWnd, nullptr, FALSE);
             }
+            
+            auto statusRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 160.0f, 
+                                             resources::ui::STATUS_WIDTH, resources::ui::STATUS_HEIGHT);
+            bool newStatusHover = point_in_rect(statusRect, pt);
+            if (newStatusHover != g_app.statusHover) {
+                g_app.statusHover = newStatusHover;
+                update_status_target_color();
+                
+                bool restartMode = g_app.statusMessage.find(L"Restart required") != std::wstring::npos;
+                if (g_app.statusHover && !restartMode) {
+                    if (g_app.originalStatusMessage.empty()) g_app.originalStatusMessage = g_app.statusMessage;
+                    g_app.statusMessage = L"🔗 Open author's GitHub repositories";
+                } else if (!g_app.statusHover && !restartMode && !g_app.originalStatusMessage.empty()) {
+                    g_app.statusMessage = g_app.originalStatusMessage;
+                    g_app.originalStatusMessage.clear();
+                }
+                ::InvalidateRect(hWnd, nullptr, FALSE);
+            }
+        } else if (wParam == resources::ui::TIMER_ANIMATION_ID) {
+            bool redraw = g_app.buttonColor.update(resources::ui::COLOR_TRANSITION_SPEED);
+            redraw |= g_app.statusColor.update(resources::ui::COLOR_TRANSITION_SPEED);
+            redraw |= g_app.cardColor.update(resources::ui::COLOR_TRANSITION_SPEED);
+            if (redraw) ::InvalidateRect(hWnd, nullptr, FALSE);
         }
         return 0;
-
-	case WM_SETCURSOR: {
-		POINT pt;
-		GetCursorPos(&pt);
-		ScreenToClient(hWnd, &pt);
-
-		D2D1_RECT_F buttonRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 95.0f, BUTTON_WIDTH, BUTTON_HEIGHT);
-		D2D1_RECT_F statusRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 160.0f, STATUS_WIDTH, STATUS_HEIGHT);
-
-		if (PointInRect(buttonRect, pt) || PointInRect(statusRect, pt)) {
-			SetCursor(LoadCursor(nullptr, IDC_HAND));
-			return TRUE;
-		}
-		return DefWindowProc(hWnd, message, wParam, lParam);
-	}
-
-	case WM_LBUTTONDOWN: {
-		POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-		D2D1_RECT_F buttonRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 95.0f, BUTTON_WIDTH, BUTTON_HEIGHT);
-		D2D1_RECT_F statusRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 160.0f, STATUS_WIDTH, STATUS_HEIGHT);
-
-		if (PointInRect(buttonRect, pt)) {
-			g_app.btnPressed = true;
-			UpdateButtonTargetColor();
-			UpdateCardTargetColor();
-			SetCapture(hWnd);
-			InvalidateRect(hWnd, nullptr, FALSE);
-		}
-		else if (PointInRect(statusRect, pt)) {
-			g_app.statusPressed = true;
-			UpdateStatusTargetColor();
-			SetCapture(hWnd);
-			InvalidateRect(hWnd, nullptr, FALSE);
-			PlaySoundW(L"SystemDefault", nullptr, SND_ALIAS | SND_ASYNC);
-		}
-		return 0;
-	}
-
-	case WM_LBUTTONUP: {
-		POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-		D2D1_RECT_F buttonRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 95.0f, BUTTON_WIDTH, BUTTON_HEIGHT);
-		D2D1_RECT_F statusRect = GetScaledCenteredRect(WINDOW_WIDTH / 2.0f, 160.0f, STATUS_WIDTH, STATUS_HEIGHT); // 👈 додано
-		if (g_app.btnPressed) {
-			ReleaseCapture();
-			g_app.btnPressed = false;
-			UpdateButtonTargetColor();
-			UpdateCardTargetColor();
-			if (PointInRect(buttonRect, pt)) {
-				// Перевіряємо: чи потрібно перезавантаження?
-				if (g_app.statusMessage.find(L"Restart required") != std::wstring::npos) {
-					PerformSystemRestart(); 
-				} else {
-					TogglePause();
-				}
-			}
-			InvalidateRect(hWnd, nullptr, TRUE);
-		}
-		else if (g_app.statusPressed) {
-			ReleaseCapture();
-			g_app.statusPressed = false;
-			UpdateStatusTargetColor();
-			if (PointInRect(statusRect, pt)) { 
-				ShowAboutDialog(hWnd);
-			}
-			InvalidateRect(hWnd, nullptr, FALSE);
-		}
-		return 0;
-	}
-
-	case WM_DPICHANGED: {
-		g_app.dpi = LOWORD(wParam);
-		
-		g_app.dpiScale = static_cast<float>(g_app.dpi) / 96.0f;
-
-		// Отримуємо нові рекомендовані розміри вікна з lParam
-		RECT* const prcNewWindow = reinterpret_cast<RECT*>(lParam);
-
-		// Обчислюємо бажаний розмір CLIENT AREA (логічний) — завжди 455x245
-		int clientWidth = MulDiv(WINDOW_WIDTH, g_app.dpi, 96);
-		int clientHeight = MulDiv(WINDOW_HEIGHT, g_app.dpi, 96);
-
-		// Обчислюємо розмір вікна (з рамкою) на основі client area
-		RECT windowRect = { 0, 0, clientWidth, clientHeight };
-		DWORD style = GetWindowLong(hWnd, GWL_STYLE);
-		DWORD exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
-		AdjustWindowRectExForDpi(&windowRect, style, FALSE, exStyle, g_app.dpi);
-		int windowWidth = windowRect.right - windowRect.left;
-		int windowHeight = windowRect.bottom - windowRect.top;
-
-		// Застосовуємо новий розмір вікна
-		SetWindowPos(hWnd,
-			nullptr,
-			prcNewWindow->left,  // Залишаємо позицію як рекомендовано
-			prcNewWindow->top,
-			windowWidth,          // Новий ширина вікна (з рамкою)
-			windowHeight,         // Нова висота вікна (з рамкою)
-			SWP_NOZORDER | SWP_NOACTIVATE);
-
-		// Оновлюємо розмір render target
-		ResizeDirect2D(hWnd);
-
-		// Застосовуємо глобальну трансформацію масштабування
-		// ApplyDpiTransform();
-
-		// Інвалідуємо вікно для перерендеру
-		InvalidateRect(hWnd, nullptr, TRUE);
-		return 0;
-	}
-
-    case WM_DESTROY:
-        KillTimer(hWnd, TIMER_ID);
-        KillTimer(hWnd, TIMER_ANIMATION_ID);
-        g_d2d.Release();
-        ReleaseSingleInstance(); // Звільняємо mutex
-        PostQuitMessage(0);
+    
+    case WM_SETCURSOR: {
+        POINT pt;
+        ::GetCursorPos(&pt);
+        ::ScreenToClient(hWnd, &pt);
+        auto btnRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 95.0f, 
+                                      resources::ui::BUTTON_WIDTH, resources::ui::BUTTON_HEIGHT);
+        auto statusRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 160.0f, 
+                                         resources::ui::STATUS_WIDTH, resources::ui::STATUS_HEIGHT);
+        if (point_in_rect(btnRect, pt) || point_in_rect(statusRect, pt)) {
+            ::SetCursor(::LoadCursor(nullptr, IDC_HAND));
+            return TRUE;
+        }
+        return ::DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+    
+    case WM_LBUTTONDOWN: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        auto btnRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 95.0f, 
+                                      resources::ui::BUTTON_WIDTH, resources::ui::BUTTON_HEIGHT);
+        auto statusRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 160.0f, 
+                                         resources::ui::STATUS_WIDTH, resources::ui::STATUS_HEIGHT);
+        
+        if (point_in_rect(btnRect, pt)) {
+            g_app.btnPressed = true;
+            update_button_target_color();
+            update_card_target_color();
+            ::SetCapture(hWnd);
+            ::InvalidateRect(hWnd, nullptr, FALSE);
+        } else if (point_in_rect(statusRect, pt)) {
+            g_app.statusPressed = true;
+            update_status_target_color();
+            ::SetCapture(hWnd);
+            ::InvalidateRect(hWnd, nullptr, FALSE);
+            ::PlaySoundW(L"SystemDefault", nullptr, SND_ALIAS | SND_ASYNC);
+        }
         return 0;
     }
-    return DefWindowProc(hWnd, message, wParam, lParam);
+    
+    case WM_LBUTTONUP: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        auto btnRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 95.0f, 
+                                      resources::ui::BUTTON_WIDTH, resources::ui::BUTTON_HEIGHT);
+        auto statusRect = get_scaled_rect(resources::ui::WINDOW_WIDTH / 2.0f, 160.0f, 
+                                         resources::ui::STATUS_WIDTH, resources::ui::STATUS_HEIGHT);
+        
+        if (g_app.btnPressed) {
+            ::ReleaseCapture();
+            g_app.btnPressed = false;
+            update_button_target_color();
+            update_card_target_color();
+            if (point_in_rect(btnRect, pt)) {
+                if (g_app.statusMessage.find(L"Restart required") != std::wstring::npos)
+                    perform_system_restart();
+                else
+                    toggle_pause();
+            }
+            ::InvalidateRect(hWnd, nullptr, TRUE);
+        } else if (g_app.statusPressed) {
+            ::ReleaseCapture();
+            g_app.statusPressed = false;
+            update_status_target_color();
+            if (point_in_rect(statusRect, pt)) show_about_dialog();
+            ::InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        return 0;
+    }
+    
+    case WM_DPICHANGED: {
+        g_app.dpi = LOWORD(wParam);
+        g_app.dpiScale = static_cast<float>(g_app.dpi) / 96.0f;
+        RECT* prc = reinterpret_cast<RECT*>(lParam);
+        
+        int cw = ::MulDiv(resources::ui::WINDOW_WIDTH, g_app.dpi, 96);
+        int ch = ::MulDiv(resources::ui::WINDOW_HEIGHT, g_app.dpi, 96);
+        
+        RECT wr = {0, 0, cw, ch};
+        DWORD style = ::GetWindowLong(hWnd, GWL_STYLE);
+        DWORD exStyle = ::GetWindowLong(hWnd, GWL_EXSTYLE);
+        ::AdjustWindowRectExForDpi(&wr, style, FALSE, exStyle, g_app.dpi);
+        
+        ::SetWindowPos(hWnd, nullptr, prc->left, prc->top, 
+                      wr.right - wr.left, wr.bottom - wr.top,
+                      SWP_NOZORDER | SWP_NOACTIVATE);
+        resize_direct2d(hWnd);
+        ::InvalidateRect(hWnd, nullptr, TRUE);
+        return 0;
+    }
+    
+    case WM_DESTROY:
+        ::KillTimer(hWnd, resources::ui::TIMER_ID);
+        ::KillTimer(hWnd, resources::ui::TIMER_ANIMATION_ID);
+        g_d2d.release();
+        ::PostQuitMessage(0);
+        return 0;
+    }
+    return ::DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
-// ==================================================================
-// ENTRY POINT
-// ==================================================================
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    // Check for single instance FIRST
-    if (!CheckSingleInstance()) {
-        // Другий екземпляр - виходимо
-        return 0;
-    }
-	
-	// Check Windows version
-    if (!CheckWindowsVersion()) {
-		ReleaseSingleInstance();
+int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
+    if (!check_single_instance()) return 0;
+    
+    if (!is_win10_or_later()) {
+        ::MessageBoxW(nullptr, L"Windows 10 or later required.", L"Error", MB_OK | MB_ICONERROR);
         return 1;
     }
-
-    // Check admin privileges
-    if (!IsRunningAsAdmin()) {
-        wchar_t szPath[MAX_PATH];
-        if (GetModuleFileNameW(nullptr, szPath, MAX_PATH) == 0) {
-            MessageBoxW(nullptr,
-                L"Failed to get application path.",
-                L"Error",
-                MB_OK | MB_ICONERROR);
-			ReleaseSingleInstance();
-            return 1;
-        }
-
+    
+    if (!is_running_as_admin()) {
+        wchar_t path[MAX_PATH];
+        if (!::GetModuleFileNameW(nullptr, path, MAX_PATH)) return 1;
+        
         SHELLEXECUTEINFOW sei = { sizeof(sei) };
         sei.lpVerb = L"runas";
-        sei.lpFile = szPath;
+        sei.lpFile = path;
         sei.nShow = SW_NORMAL;
-
-        if (!ShellExecuteExW(&sei)) {
-            DWORD dwError = GetLastError();
-            if (dwError == ERROR_CANCELLED) {
-                MessageBoxW(nullptr,
-                    L"Administrator privileges are required to run this application.",
-                    L"Administrator Privileges Required",
-                    MB_OK | MB_ICONWARNING);
+        
+        if (!::ShellExecuteExW(&sei)) {
+            if (::GetLastError() == ERROR_CANCELLED) {
+                ::MessageBoxW(nullptr, L"Administrator privileges required.", L"Warning", MB_OK | MB_ICONWARNING);
             }
-			ReleaseSingleInstance();
             return 1;
         }
-		ReleaseSingleInstance();
         return 0;
     }
-
-    // Initialize COM
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-    // Enable DPI awareness
-    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-
-    // Initialize common controls
-    INITCOMMONCONTROLSEX icex = { sizeof(INITCOMMONCONTROLSEX), ICC_WIN95_CLASSES };
-    InitCommonControlsEx(&icex);
-
-    // Register window class
-    HICON hIconLarge = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_ICON));
-    HICON hIconSmall = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_ICON_SMALL));
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX) };
+    
+    HRESULT hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (FAILED(hr)) return 1;
+    auto comGuard = std::unique_ptr<void, decltype([](void*){ ::CoUninitialize(); })>(reinterpret_cast<void*>(1));
+    
+    ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    
+    INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_WIN95_CLASSES };
+    ::InitCommonControlsEx(&icex);
+    
+    WNDCLASSEXW wc = { sizeof(wc) };
     wc.lpfnWndProc = WndProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = CLASS_NAME;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hInstance = hInst;
+    wc.lpszClassName = resources::strings::CLASS_NAME.data();
+    wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = nullptr;
     wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.hIcon = hIconLarge;
-    wc.hIconSm = hIconSmall;
-
-    if (!RegisterClassEx(&wc)) {
-        MessageBoxW(nullptr, L"Failed to register window class", L"Error", MB_OK | MB_ICONERROR);
-        CoUninitialize();
-		ReleaseSingleInstance();
-        return 1;
-    }
-
-    // Отримуємо DPI
+    wc.hIcon = ::LoadIconW(hInst, MAKEINTRESOURCEW(resources::icons::MAIN));
+    wc.hIconSm = ::LoadIconW(hInst, MAKEINTRESOURCEW(resources::icons::SMALL));
+    
+    if (!::RegisterClassExW(&wc)) return 1;
+    
     UINT dpi = 96;
-    HMONITOR hMon = MonitorFromPoint({}, MONITOR_DEFAULTTOPRIMARY);
-    GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, &dpi, &dpi);
-    
-    // ВАЖЛИВО: Встановити DPI перед створенням вікна
+    HMONITOR mon = ::MonitorFromPoint({}, MONITOR_DEFAULTTOPRIMARY);
+    ::GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dpi, &dpi);
     g_app.dpi = dpi;
-	
-	g_app.dpiScale = static_cast<float>(dpi) / 96.0f;
+    g_app.dpiScale = static_cast<float>(dpi) / 96.0f;
     
-    // Обчислюємо бажаний розмір CLIENT AREA (не вікна!)
-    int clientWidth = MulDiv(WINDOW_WIDTH, dpi, 96);
-    int clientHeight = MulDiv(WINDOW_HEIGHT, dpi, 96);
+    int cw = ::MulDiv(resources::ui::WINDOW_WIDTH, dpi, 96);
+    int ch = ::MulDiv(resources::ui::WINDOW_HEIGHT, dpi, 96);
     
-    // Обчислюємо розмір вікна на основі client area
-    RECT windowRect = { 0, 0, clientWidth, clientHeight };
-    
-    // Стиль вікна
+    RECT wr = {0, 0, cw, ch};
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
     DWORD exStyle = WS_EX_TOPMOST;
+    ::AdjustWindowRectExForDpi(&wr, style, FALSE, exStyle, dpi);
     
-    // AdjustWindowRectExForDpi обчислює розмір вікна з рамкою для заданого DPI
-    AdjustWindowRectExForDpi(&windowRect, style, FALSE, exStyle, dpi);
+    MONITORINFO mi = { sizeof(mi) };
+    ::GetMonitorInfoW(mon, &mi);
+    int x = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - (wr.right - wr.left)) / 2;
+    int y = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - (wr.bottom - wr.top)) / 2;
     
-    int windowWidth = windowRect.right - windowRect.left;
-    int windowHeight = windowRect.bottom - windowRect.top;
+    HWND hWnd = ::CreateWindowExW(exStyle, resources::strings::CLASS_NAME.data(),
+        resources::strings::WINDOW_TITLE.data(), style, x, y,
+        wr.right - wr.left, wr.bottom - wr.top,
+        nullptr, nullptr, hInst, nullptr);
     
-    // Центруємо вікно
-    MONITORINFO mi = { sizeof(MONITORINFO) };
-    GetMonitorInfo(hMon, &mi);
-    int windowX = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - windowWidth) / 2;
-    int windowY = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - windowHeight) / 2;
-
-    // Create window з правильними розмірами
-    HWND hWnd = CreateWindowExW(
-        exStyle,
-        CLASS_NAME,
-        L"WUP",
-        style,
-        windowX,
-        windowY,
-        windowWidth,    // Розмір вікна (з рамкою)
-        windowHeight,   // Розмір вікна (з рамкою)
-        nullptr, 
-        nullptr, 
-        hInstance, 
-        nullptr
-    );
-
-    if (!hWnd) {
-        MessageBoxW(nullptr, L"Failed to create window", L"Error", MB_OK | MB_ICONERROR);
-        CoUninitialize();
-        ReleaseSingleInstance();
-        return 1;
+    if (!hWnd) return 1;
+    
+    ::ShowWindow(hWnd, nCmdShow);
+    ::UpdateWindow(hWnd);
+    
+    MSG msg{};
+    while (::GetMessageW(&msg, nullptr, 0, 0)) {
+        ::TranslateMessage(&msg);
+        ::DispatchMessageW(&msg);
     }
-
-    // Тепер не потрібно викликати CenterWindowOnMonitor - вікно вже центроване
-    ShowWindow(hWnd, nCmdShow);
-    UpdateWindow(hWnd);
-
-    // Message loop
-    MSG msg;
-    while (GetMessage(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-
-    CoUninitialize();
-	ReleaseSingleInstance();
+    
     return static_cast<int>(msg.wParam);
 }
