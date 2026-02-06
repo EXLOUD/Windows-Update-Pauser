@@ -30,7 +30,7 @@
 <p align="center">
   <img src="https://custom-icon-badges.demolab.com/badge/Version-v2.0.1-brightgreen?logo=tag&logoColor=white" />
   <a href="https://github.com/EXLOUD/Windows-Update-Pauser/issues"><img alt="Issues" src="https://img.shields.io/github/issues/EXLOUD/Windows-Update-Pauser?color=F48D73" /></a>
-  <img src="https://custom-icon-badges.demolab.com/badge/Toolchain-LLVM%2020260127%20%28LLVM%2022.1.0%20RC%202%29-5A5CDA?logo=llvm&logoColor=white" /></a>
+  <img src="https://custom-icon-badges.demolab.com/badge/Toolchain-LLVM%2022.1.0%20RC%202-5A5CDA?logo=llvm&logoColor=white" />
   <img src="https://custom-icon-badges.demolab.com/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white" />
   <a href="https://github.com/EXLOUD/Windows-Update-Pauser/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/EXLOUD/Windows-Update-Pauser.svg" /></a>
 </p>
