@@ -1,4 +1,3 @@
-// Константи для llvm-rc (немає windows.h)
 #ifndef VS_FFI_FILEFLAGSMASK
 #define VS_FFI_FILEFLAGSMASK    0x0000003F
 #endif
@@ -15,7 +14,6 @@
 #include "Resource.hpp"
 
 IDI_MAIN_ICON       ICON    "icon.ico"
-IDI_SMALL_ICON      ICON    "icon_small.ico"
 
 1 VERSIONINFO
 FILEVERSION     VER_FILEVERSION

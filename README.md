@@ -3,7 +3,7 @@
 ### 👇
 
   <p>
-    <a href="https://github.com/EXLOUD/Windows-Update-Pauser/releases/tag/v2.0.0">
+    <a href="https://github.com/EXLOUD/Windows-Update-Pauser/releases/tag/v2.0.1">
       <img src="https://img.shields.io/badge/_  >_Download_This_Program_<_-darkgreen?style=for-the-badge">
     </a>
   </p>
@@ -28,9 +28,9 @@
 <p align="center">Modern Windows Update Control Tool — C++23, Fully Static, ARM64/x64/x86</p>
 
 <p align="center">
-  <img src="https://custom-icon-badges.demolab.com/badge/Version-v2.0.0-brightgreen?logo=tag&logoColor=white" />
+  <img src="https://custom-icon-badges.demolab.com/badge/Version-v2.0.1-brightgreen?logo=tag&logoColor=white" />
   <a href="https://github.com/EXLOUD/Windows-Update-Pauser/issues"><img alt="Issues" src="https://img.shields.io/github/issues/EXLOUD/Windows-Update-Pauser?color=F48D73" /></a>
-  <img src="https://custom-icon-badges.demolab.com/badge/Toolchain-llvm--mingw%2020260127%20%28LLVM%2022.1.0%20RC%202%29-5A5CDA?logo=llvm&logoColor=white" /></a>
+  <img src="https://custom-icon-badges.demolab.com/badge/Toolchain-LLVM%2020260127%20%28LLVM%2022.1.0%20RC%202%29-5A5CDA?logo=llvm&logoColor=white" /></a>
   <img src="https://custom-icon-badges.demolab.com/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white" />
   <a href="https://github.com/EXLOUD/Windows-Update-Pauser/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/EXLOUD/Windows-Update-Pauser.svg" /></a>
 </p>
@@ -135,50 +135,27 @@ These settings block: driver updates, metadata fetching, update servers, auto-up
 <details>
 <summary>Click to expand building instructions</summary>
 
-### Prerequisites
-- [llvm-mingw 20260127 (LLVM 22.1.0 RC 2)](https://github.com/mstorsjo/llvm-mingw/releases/tag/20260127) — Download here  
-  - `llvm-mingw-20260127-msvcrt-x86_64.zip`  
-  - `llvm-mingw-20260127-ucrt-x86_64.zip`  
-  - `llvm-mingw-20260127-ucrt-aarch64.zip` (for ARM64)  
-
 ### Required files in project root:
 - `WindowsUpdatePauser.cpp`  
 - `Resource.rc`  
 - `Resource.hpp`  
-- `icon.ico` (32x32)  
-- `icon_small.ico` (16x16)  
+- `icon.ico` 
 
 ### One-Click Build
 Run `build-release.bat` to automatically generate 6 fully static binaries:
 ├── msvcrt
-│ ├── x64 → WindowsUpdatePauser-x64.exe (694 KB)
-│ ├── x86 → WindowsUpdatePauser-x86.exe (801 KB)
-│ └── arm64 → WindowsUpdatePauser-arm64.exe (665 KB)
+│ ├── x64 → WindowsUpdatePauser-x64.exe
+│ ├── x86 → WindowsUpdatePauser-x86.exe
+│ └── arm64 → WindowsUpdatePauser-arm64.exe
 └── ucrt
-├── x64 → WindowsUpdatePauser-x64.exe (645 KB)
-├── x86 → WindowsUpdatePauser-x86.exe (751 KB)
-└── arm64 → WindowsUpdatePauser-arm64.exe (623 KB)
+├── x64 → WindowsUpdatePauser-x64.exe
+├── x86 → WindowsUpdatePauser-x86.exe
+└── arm64 → WindowsUpdatePauser-arm64.exe
 
 text
 
 
 Script validates all source files and compiler paths before starting. Uses C++23 with `-std=c++23 -stdlib=libc++`.
-
-### Manual Build (Single Target)
-
-# For x64 UCRT build:
-C:\llvm-mingw-ucrt\bin\x86_64-w64-mingw32-clang++.exe ^
-  -target x86_64-w64-windows-gnu ^
-  -std=c++23 -stdlib=libc++ -fexperimental-library ^
-  -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE -O3 -flto=thin ^
-  -static-libgcc -static-libstdc++ ^
-  -Wl,-Bstatic -lwinpthread -lc++ -lc++abi -lunwind -Wl,-Bdynamic ^
-  -Wl,-subsystem,windows:6.0 -Wl,--gc-sections ^
-  -o WindowsUpdatePauser.exe ^
-  WindowsUpdatePauser.cpp Resource.rc.o ^
-  -lcomctl32 -ldwmapi -luxtheme -lwinmm -lversion -lshcore ^
-  -lshell32 -luser32 -lkernel32 -lole32 -loleaut32 -luuid ^
-  -ld2d1 -ldwrite -lwindowscodecs
   
 </details>
 

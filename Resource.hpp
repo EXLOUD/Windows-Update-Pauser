@@ -1,4 +1,4 @@
-﻿#ifndef RESOURCE_HPP
+#ifndef RESOURCE_HPP
 #define RESOURCE_HPP
 
 // ==========================================
@@ -8,7 +8,7 @@
 // Version - single source of truth
 #define VER_MAJOR       2
 #define VER_MINOR       0
-#define VER_PATCH       0
+#define VER_PATCH       1
 #define VER_BUILD       0
 
 #define VER_FILEVERSION VER_MAJOR,VER_MINOR,VER_PATCH,VER_BUILD
@@ -20,16 +20,15 @@
 
 // Resource IDs - використовуємо IDI_ префікс щоб уникнути конфліктів з Windows headers
 #define IDI_MAIN_ICON       101
-#define IDI_SMALL_ICON      102
 
 // String constants for RC
-#define RES_COMPANY_NAME    "SCHAVEL-NO"
+#define RES_COMPANY_NAME    "EXLOUD"
 #define RES_PRODUCT_NAME    "Windows Update Pauser"
-#define RES_COPYRIGHT       "EXLOUD 2025"
+#define RES_COPYRIGHT       "EXLOUD 2026"
 #define RES_INTERNAL_NAME   "WindowsUpdatePauser"
 #define RES_ORIGINAL_NAME   "WindowsUpdatePauser.exe"
 #define RES_CLASS_NAME      "WUP"
-#define RES_MUTEX_NAME      "Global\\EXLOUD_WUP_200_SCHAVEL_NO_2025_SingleInstance"
+#define RES_MUTEX_NAME      "Global\\EXLOUD_WUP_2010_2026_SingleInstance"
 
 // ==========================================
 // SECTION 2: C++23 ONLY (Excluded from RC)
@@ -43,7 +42,6 @@
 namespace resources {
     namespace icons {
         inline constexpr std::uint16_t MAIN = IDI_MAIN_ICON;
-        inline constexpr std::uint16_t SMALL = IDI_SMALL_ICON;
     }
     
     namespace strings {
@@ -57,17 +55,17 @@ namespace resources {
     namespace ui {
         inline constexpr int WINDOW_WIDTH = 445;
         inline constexpr int WINDOW_HEIGHT = 210;
-        inline constexpr float BUTTON_WIDTH = 340.0f;
-        inline constexpr float BUTTON_HEIGHT = 35.0f;
-        inline constexpr float STATUS_WIDTH = 390.0f;
-        inline constexpr float STATUS_HEIGHT = 40.0f;
-        inline constexpr float CARD_WIDTH = 390.0f;
-        inline constexpr float CARD_HEIGHT = 70.0f;
+        inline constexpr float BUTTON_WIDTH = 340.0F;
+        inline constexpr float BUTTON_HEIGHT = 35.0F;
+        inline constexpr float STATUS_WIDTH = 390.0F;
+        inline constexpr float STATUS_HEIGHT = 40.0F;
+        inline constexpr float CARD_WIDTH = 390.0F;
+        inline constexpr float CARD_HEIGHT = 70.0F;
         inline constexpr int TIMER_ID = 1;
         inline constexpr int TIMER_INTERVAL = 50;
         inline constexpr int TIMER_ANIMATION_ID = 2;
         inline constexpr int TIMER_ANIMATION_INTERVAL = 16;
-        inline constexpr float COLOR_TRANSITION_SPEED = 0.08f;
+        inline constexpr float COLOR_TRANSITION_SPEED = 0.08F;
     }
     
     namespace version {
@@ -83,7 +81,6 @@ namespace resources {
     
     // Compile-time verification
     static_assert(icons::MAIN == 101);
-    static_assert(icons::SMALL == 102);
 }
 
 #endif // RC_INVOKED
